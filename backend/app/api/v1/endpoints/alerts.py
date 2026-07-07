@@ -1,0 +1,23 @@
+from fastapi import APIRouter, Depends
+from sqlalchemy.orm import Session
+from typing import List
+
+from app.core.database import get_db
+from app.crud import alert as crud_alert
+from app.schemas import alert as schema_alert
+
+router = APIRouter()
+
+@router.post("/rules", response_model=schema_alert.AlertRule)
+def create_alert_rule(rule: schema_alert.AlertRuleCreate, db: Session = Depends(get_db)):
+    return crud_alert.create_alert_rule(db=db, rule=rule)
+
+@router.get("/rules", response_model=List[schema_alert.AlertRule])
+def read_alert_rules(skip: int = 0, limit: int = 100, db: Session = Depends(get_db)):
+    rules = crud_alert.get_alert_rules(db, skip=skip, limit=limit)
+    return rules
+
+@router.get("/", response_model=List[schema_alert.Alert])
+def read_alerts(skip: int = 0, limit: int = 100, db: Session = Depends(get_db)):
+    alerts = crud_alert.get_alerts(db, skip=skip, limit=limit)
+    return alerts
