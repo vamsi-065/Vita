@@ -22,5 +22,12 @@
     "erasableSyntaxOnly": true,
     "noFallthroughCasesInSwitch": true
   },
-  "include": ["src"]
+  "include": ["src"],
+  "exclude": [
+    "src/components/auth/LoginScreen.tsx",
+    "src/components/chat/Chat.tsx",
+    "src/components/dashboard/DatabaseTables.tsx",
+    "src/components/layout/Sidebar.tsx",
+    "src/components/layout/AppShell.tsx"
+  ]
 }

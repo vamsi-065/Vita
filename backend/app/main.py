@@ -1,3 +1,5 @@
+import os
+import sys
 import asyncio
 import logging
 import traceback
@@ -5,17 +7,93 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
+from dotenv import load_dotenv
+from sqlalchemy import text
 
-from app.core.database import engine, Base, SessionLocal
-from app.models.user import User
-from app.models.alert import AlertRule, Alert, NotificationLog
-from app.core.alert_manager import evaluate_rules
+load_dotenv()
 
+# Initialize basic logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Create tables
-Base.metadata.create_all(bind=engine)
+from app.core.database import engine, Base, SessionLocal, database_service
+from app.models.user import User
+from app.models.alert import AlertRule, Alert, NotificationLog
+from app.core.alert_manager import evaluate_rules
+from app.llm.engine import llm_engine
+
+def run_startup_checks():
+    logger.info("Executing Startup Health Checks (Phase 10)...")
+    
+    # 1. Verify DATABASE_URL
+    db_url = os.getenv("DATABASE_URL")
+    if not db_url:
+        logger.critical("[STARTUP FAILED] DATABASE_URL is not set in environment.")
+        sys.exit(1)
+        
+    # 2. Verify PostgreSQL connection
+    try:
+        database_service.validate_connection()
+    except Exception as e:
+        logger.critical(f"[STARTUP FAILED] PostgreSQL connection failed: {e}")
+        sys.exit(1)
+        
+    # 3. Create tables (Schema migration/sync)
+    try:
+        logger.info("Syncing Database Schema...")
+        Base.metadata.create_all(bind=engine)
+        
+        # Ensure inventory table is created explicitly
+        with database_service.transaction() as session:
+            session.execute(text("""
+                CREATE TABLE IF NOT EXISTS inventory (
+                    id SERIAL PRIMARY KEY,
+                    item_name VARCHAR(255) UNIQUE NOT NULL,
+                    quantity INTEGER NOT NULL DEFAULT 0,
+                    status VARCHAR(50) NOT NULL DEFAULT 'Out of Stock'
+                );
+            """))
+        logger.info("Database Schema synced successfully.")
+    except Exception as e:
+        logger.critical(f"[STARTUP FAILED] Schema creation failed: {e}")
+        sys.exit(1)
+        
+    # 4. CRUD engine self-test
+    try:
+        logger.info("Verifying CRUD engine...")
+        with database_service.transaction() as session:
+            # Clean up potential legacy test rows
+            session.execute(text("DELETE FROM inventory WHERE item_name = 'startup_test_banana';"))
+            # Insert
+            session.execute(text("INSERT INTO inventory (item_name, quantity, status) VALUES ('startup_test_banana', 10, 'In Stock');"))
+            # Select
+            row = session.execute(text("SELECT id, quantity FROM inventory WHERE item_name = 'startup_test_banana';")).fetchone()
+            if not row or row[1] != 10:
+                raise ValueError("CRUD self-test select verification failed.")
+            # Delete
+            session.execute(text("DELETE FROM inventory WHERE item_name = 'startup_test_banana';"))
+        logger.info("CRUD engine validated successfully.")
+    except Exception as e:
+        logger.critical(f"[STARTUP FAILED] CRUD engine self-test failed: {e}")
+        sys.exit(1)
+        
+    # 5. Verify GEMINI_API_KEY
+    gemini_key = os.getenv("GEMINI_API_KEY")
+    if not gemini_key:
+        logger.critical("[STARTUP FAILED] GEMINI_API_KEY is not set in environment.")
+        sys.exit(1)
+        
+    # 6. Verify Gemini Key & Model Access
+    try:
+        llm_engine.validate_api_key()
+    except Exception as e:
+        logger.critical(f"[STARTUP FAILED] Gemini authentication/model access failed: {e}")
+        sys.exit(1)
+        
+    logger.info("All Startup Health Checks passed successfully! Server is ready.")
+
+# Run startup checks before starting application loops
+run_startup_checks()
 
 async def periodic_alert_evaluator():
     while True:
@@ -71,7 +149,7 @@ def root():
 def health_check():
     return {
         "status": "healthy",
-        "app_name": "AI Business OS",
+        "app_name": "Vita",
         "version": "1.0.0",
         "environment": "development",
         "database": "connected"

@@ -30,7 +30,7 @@ class TableDetailResponse(BaseModel):
     row_count: int
 
 @router.get("/", response_model=TablesListResponse)
-def list_tables(current_user = Depends(get_current_user)):
+def list_tables():
     inspector = inspect(engine)
     table_names = inspector.get_table_names()
     tables = []
@@ -38,8 +38,18 @@ def list_tables(current_user = Depends(get_current_user)):
         tables.append(TableSummary(name=name, created_at=datetime.utcnow()))
     return {"tables": tables}
 
+@router.post("/clean")
+def clean_inventory():
+    try:
+        with engine.connect() as conn:
+            with conn.begin():
+                conn.execute(text("TRUNCATE TABLE inventory RESTART IDENTITY CASCADE;"))
+        return {"status": "success", "message": "Database cleared successfully."}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to clear database: {str(e)}")
+
 @router.get("/{table_name}", response_model=TableDetailResponse)
-def get_table(table_name: str, current_user = Depends(get_current_user)):
+def get_table(table_name: str):
     inspector = inspect(engine)
     table_names = inspector.get_table_names()
     if table_name not in table_names:

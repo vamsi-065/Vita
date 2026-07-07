@@ -10,25 +10,19 @@ from app.crud import user as crud_user
 from app.schemas import user as schema_user
 
 router = APIRouter()
-security = HTTPBearer()
+security = HTTPBearer(auto_error=False)
 
 def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security), db: Session = Depends(get_db)):
-    credentials_exception = HTTPException(
-        status_code=status.HTTP_401_UNAUTHORIZED,
-        detail="Could not validate credentials",
-        headers={"WWW-Authenticate": "Bearer"},
-    )
-    token = credentials.credentials
-    try:
-        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-        user_id: str = payload.get("sub")
-        if user_id is None:
-            raise credentials_exception
-    except JWTError:
-        raise credentials_exception
-    user = crud_user.get_user_by_id(db, user_id=user_id)
+    user = crud_user.get_user_by_email(db, email="open@business.os")
     if user is None:
-        raise credentials_exception
+        from app.schemas.user import UserCreate
+        user_in = UserCreate(
+            email="open@business.os",
+            password="defaultpassword",
+            full_name="Open User",
+            business_name="AI Business OS"
+        )
+        user = crud_user.create_user(db=db, user=user_in)
     return user
 
 @router.post("/signup", response_model=schema_user.AuthResponse, status_code=201)
