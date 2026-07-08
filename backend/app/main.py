@@ -7,19 +7,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 
-app = FastAPI()
-origins = [
-    "https://vita-opal.vercel.app",
-    "http://localhost:5173",
-]
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=origins,
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
 
 from contextlib import asynccontextmanager
 from dotenv import load_dotenv
@@ -133,7 +121,9 @@ app = FastAPI(title="AI Business OS API", lifespan=lifespan)
 # CORS configuration
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
+    allow_origins=["https://vita-opal.vercel.app",
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
