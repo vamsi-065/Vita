@@ -35,6 +35,8 @@ class Executor:
                 results.append(f"Updated {row_count if row_count is not None else 0} records in '{target}'.")
             elif op_type == "delete":
                 results.append(f"Deleted {row_count if row_count is not None else 0} records from '{target}'.")
+            elif op_type == "delete_all":
+                results.append(f"Cleared all {row_count if row_count is not None else 0} records from '{target}'.")
             elif op_type == "alter_table":
                 results.append(f"Altered table structure for '{target}'.")
             elif op_type == "select":

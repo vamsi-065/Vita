@@ -66,6 +66,23 @@ class LLMEngine:
         logger.info(f"LLMEngine: Processing prompt: {text_input}")
         db_state = self.get_db_state()
         
+        schema_def = {
+            "language": "detected language",
+            "intent": "user intent description",
+            "confirmation_required": False,
+            "operations": [
+                {
+                    "type": "create_table | insert | update | delete | select | alter_table",
+                    "target": "table_name",
+                    "data": {},
+                    "conditions": {},
+                    "columns": []
+                }
+            ],
+            "response": "draft friendly response in user's detected language and script"
+        }
+        schema_json = json.dumps(schema_def, indent=2)
+
         prompt = f"""
 You are the database planning engine for a shop inventory app named "Vita".
 Your job is to parse the user's request and output a JSON object containing:
@@ -95,10 +112,12 @@ If recording sales:
 - If the item exists, update quantity by subtracting the sold quantity. Ensure quantity >= 0.
 - If not, explain in response that item was not found.
 If deleting/removing specific items (e.g. "remove eggs"):
-- Output a "delete" operation with "conditions" containing the item_name (e.g. {"item_name": "Eggs"}).
+- Output a "delete" operation with "conditions" containing the item_name (e.g. {{"item_name": "Eggs"}}).
 - After successful delete respond exactly: "<Item Name> removed from inventory." (e.g., "Eggs removed from inventory.")
 If the user asks to clear all, delete everything, or remove all items:
 - Set "confirmation_required": true instead of generating SQL/operations.
+If the user explicitly confirms clearing the entire inventory (e.g. "confirm delete all", "yes clear everything"):
+- Output a "delete_all" operation with target "inventory" and set "confirmation_required": false.
 
 Multilingual Rules:
 - Let Gemini detect the input language.
@@ -107,21 +126,7 @@ Multilingual Rules:
 - Never translate unless explicitly requested.
 
 Generate the action plan. Output format must be EXACTLY:
-{{
-  "language": "detected language",
-  "intent": "user intent description",
-  "confirmation_required": false,
-  "operations": [
-    {{
-      "type": "create_table" | "insert" | "update" | "delete" | "select" | "alter_table",
-      "target": "table_name",
-      "data": {{}},
-      "conditions": {{}},
-      "columns": []
-    }}
-  ],
-  "response": "draft friendly response in user's detected language and script"
-}}
+{schema_json}
 
 Only return valid JSON. Do not write any explanations or markdown formatting outside the JSON.
 """
@@ -152,6 +157,23 @@ Only return valid JSON. Do not write any explanations or markdown formatting out
         db_state = self.get_db_state()
         base64_image = base64.b64encode(image_bytes).decode("utf-8")
         
+        schema_def = {
+            "language": "detected language",
+            "intent": "user intent description",
+            "confirmation_required": False,
+            "operations": [
+                {
+                    "type": "create_table | insert | update | delete | select | alter_table",
+                    "target": "table_name",
+                    "data": {},
+                    "conditions": {},
+                    "columns": []
+                }
+            ],
+            "response": "draft friendly response in user's same language and script"
+        }
+        schema_json = json.dumps(schema_def, indent=2)
+
         prompt = f"""
 You are the database planning engine for a shop inventory app named "Vita".
 Your job is to analyze the uploaded image and output a JSON object containing:
@@ -175,10 +197,12 @@ Identify product names and quantities visible in the image.
 If item exists, update quantity (adding imports, subtracting sales).
 If item does not exist, insert it. Ensure table "inventory" is created if it does not exist.
 If deleting/removing specific items (e.g. "remove eggs"):
-- Output a "delete" operation with "conditions" containing the item_name (e.g. {"item_name": "Eggs"}).
+- Output a "delete" operation with "conditions" containing the item_name (e.g. {{"item_name": "Eggs"}}).
 - After successful delete respond exactly: "<Item Name> removed from inventory." (e.g., "Eggs removed from inventory.")
 If the user asks to clear all, delete everything, or remove all items:
 - Set "confirmation_required": true instead of generating SQL/operations.
+If the user explicitly confirms clearing the entire inventory (e.g. "confirm delete all", "yes clear everything"):
+- Output a "delete_all" operation with target "inventory" and set "confirmation_required": false.
 
 Multilingual Rules:
 - Let Gemini detect the input language.
@@ -187,21 +211,7 @@ Multilingual Rules:
 - Never translate unless explicitly requested.
 
 Generate the action plan. Output format must be EXACTLY:
-{{
-  "language": "detected language",
-  "intent": "user intent description",
-  "confirmation_required": false,
-  "operations": [
-    {{
-      "type": "create_table" | "insert" | "update" | "delete" | "select" | "alter_table",
-      "target": "table_name",
-      "data": {{}},
-      "conditions": {{}},
-      "columns": []
-    }}
-  ],
-  "response": "draft friendly response in user's detected language and script"
-}}
+{schema_json}
 
 Only return valid JSON. Do not write any explanations or markdown formatting outside the JSON.
 """

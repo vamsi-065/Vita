@@ -3,6 +3,7 @@ from pydantic import BaseModel, Field
 import json
 import re
 import logging
+import traceback
 from datetime import datetime
 from time import time
 from sqlalchemy import inspect, text
@@ -157,26 +158,29 @@ def run_pipeline(request_message: str, action_plan: dict):
         normalized_ops = normalized_plan.get("operations", [])
         logger.info(f"Stage 3: Normalized Intent: {json.dumps(normalized_ops)}")
     except Exception as e:
-        logger.error(f"[PIPELINE ERROR] Normalization Stage Failed: {e}")
-        raise HTTPException(status_code=400, detail=f"Intent Normalization failed: {e}")
+        error_details = traceback.format_exc()
+        logger.error(f"[PIPELINE ERROR] Normalization Stage Failed:\n{error_details}")
+        raise HTTPException(status_code=400, detail=f"Intent Normalization failed: {e}\n\nDetails:\n{error_details}")
 
     # 2. Validation
     try:
         valid_ops = validator.validate(normalized_ops)
         logger.info(f"Stage 4: Validation Result: Successfully validated {len(valid_ops)} operations.")
     except Exception as e:
-        logger.error(f"[PIPELINE ERROR] Validation Stage Failed: {e}")
-        raise HTTPException(status_code=400, detail=f"Intent Validation failed: {e}")
+        error_details = traceback.format_exc()
+        logger.error(f"[PIPELINE ERROR] Validation Stage Failed:\n{error_details}")
+        raise HTTPException(status_code=400, detail=f"Intent Validation failed: {e}\n\nDetails:\n{error_details}")
 
     # Dynamic Schema Evolution check
     try:
         check_and_evolve_schema(valid_ops)
     except Exception as e:
-        logger.error(f"[PIPELINE ERROR] Schema Evolution Stage Failed: {e}")
-        raise HTTPException(status_code=400, detail=f"Schema Evolution failed: {e}")
+        error_details = traceback.format_exc()
+        logger.error(f"[PIPELINE ERROR] Schema Evolution Stage Failed:\n{error_details}")
+        raise HTTPException(status_code=400, detail=f"Schema Evolution failed: {e}\n\nDetails:\n{error_details}")
 
     # 3. Check for mutative command mismatch
-    mutative_keywords = ["add", "sell", "update", "delete", "create", "insert", "remove", "modify"]
+    mutative_keywords = ["add", "sell", "update", "delete", "create", "insert", "remove", "modify", "clear"]
     is_mutative = any(kw in request_message.lower() for kw in mutative_keywords)
     if is_mutative and not valid_ops:
         logger.error("[PIPELINE ERROR] Mutative request detected but parsed 0 valid database operations.")
@@ -196,8 +200,9 @@ def run_pipeline(request_message: str, action_plan: dict):
                 execution_results.extend(res)
                 logger.info(f"Stage 6: SQL Execution Success: {res}")
     except Exception as e:
-        logger.error(f"[PIPELINE ERROR] SQL Generation / Execution Stage Failed: {e}")
-        raise HTTPException(status_code=400, detail=f"Database execution failed: {e}")
+        error_details = traceback.format_exc()
+        logger.error(f"[PIPELINE ERROR] SQL Generation / Execution Stage Failed:\n{error_details}")
+        raise HTTPException(status_code=400, detail=f"Database execution failed: {e}\n\nDetails:\n{error_details}")
 
     duration = time() - start_time
     logger.info(f"Stage 7: Pipeline Duration: {duration:.3f}s")
@@ -250,8 +255,9 @@ def chat(request: ChatRequest):
     try:
         action_plan = llm_engine.generate_action_plan(request.message)
     except Exception as e:
-        logger.error(f"Gemini API failure during action plan generation: {e}")
-        raise HTTPException(status_code=400, detail=f"AI engine communication failure: {e}")
+        error_details = traceback.format_exc()
+        logger.error(f"Gemini API failure during action plan generation:\n{error_details}")
+        raise HTTPException(status_code=400, detail=f"AI engine communication failure: {e}\n\nDetails:\n{error_details}")
         
     # 2. Run the intent resolution and database pipeline
     return run_pipeline(request.message, action_plan)
@@ -271,8 +277,9 @@ async def upload(file: UploadFile = File(...)):
             mime_type=mime_type
         )
     except Exception as e:
-        logger.error(f"Gemini Multimodal API failure: {e}")
-        raise HTTPException(status_code=400, detail=f"AI engine communication failure: {e}")
+        error_details = traceback.format_exc()
+        logger.error(f"Gemini Multimodal API failure:\n{error_details}")
+        raise HTTPException(status_code=400, detail=f"AI engine communication failure: {e}\n\nDetails:\n{error_details}")
         
     # 2. Run the intent resolution and database pipeline
     return run_pipeline(f"Upload: {file.filename}", action_plan)

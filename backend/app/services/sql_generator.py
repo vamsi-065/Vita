@@ -89,6 +89,9 @@ class SQLGenerator:
             where_str = f" WHERE {' AND '.join(where_clauses)}"
             sql = f"DELETE FROM {target}{where_str};"
             
+        elif op_type == "delete_all":
+            sql = f"DELETE FROM {target};"
+            
         elif op_type == "select":
             conditions = op.get("conditions", {})
             where_clauses = []
