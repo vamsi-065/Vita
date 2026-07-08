@@ -13,7 +13,9 @@ export const Chat = () => {
   const activeChat = chats.find(c => c.id === activeChatId);
 
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+    setTimeout(() => {
+      bottomRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
+    }, 100);
   }, [activeChat?.messages, loading]);
 
   const handleSend = async (text: string) => {
@@ -77,8 +79,8 @@ export const Chat = () => {
   }
 
   return (
-    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', backgroundColor: '#121212', color: 'white' }}>
-      <div style={{ flex: 1, overflowY: 'auto', padding: '20px' }}>
+    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', backgroundColor: '#121212', color: 'white', height: '100%', overflow: 'hidden' }}>
+      <div style={{ flex: 1, overflowY: 'auto', padding: '20px', display: 'flex', flexDirection: 'column' }}>
         {activeChat && activeChat.messages.map(msg => (
           <div 
             key={msg.id} 
@@ -112,7 +114,7 @@ export const Chat = () => {
           </div>
         )}
         
-        <div ref={bottomRef} />
+        <div ref={bottomRef} style={{ float: 'left', clear: 'both', paddingBottom: '30px' }} />
       </div>
       
       <div style={{ padding: '20px', borderTop: '1px solid #333', backgroundColor: '#1e1e1e' }}>
