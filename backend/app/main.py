@@ -6,6 +6,21 @@ import traceback
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
+
+app = FastAPI()
+origins = [
+    "https://vita-opal.vercel.app",
+    "http://localhost:5173",
+]
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 from contextlib import asynccontextmanager
 from dotenv import load_dotenv
 from sqlalchemy import text
