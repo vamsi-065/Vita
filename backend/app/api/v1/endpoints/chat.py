@@ -8,7 +8,7 @@ from datetime import datetime
 from time import time
 from sqlalchemy import inspect, text
 from app.core.database import engine, database_service, Base
-from app.llm import llm_engine
+from app.llm.engine import llm_engine, RateLimitExceeded
 from app.intent_normalizer import IntentNormalizer
 from app.validator import validator
 from app.executor import executor
@@ -166,7 +166,7 @@ def run_pipeline(request_message: str, action_plan: dict):
     except Exception as e:
         error_details = traceback.format_exc()
         logger.error(f"[PIPELINE ERROR] Normalization Stage Failed:\n{error_details}")
-        raise HTTPException(status_code=400, detail=f"Intent Normalization failed: {e}\n\nDetails:\n{error_details}")
+        raise HTTPException(status_code=400, detail="Intent Normalization failed. Check server logs.")
 
     # 2. Validation
     try:
@@ -175,7 +175,7 @@ def run_pipeline(request_message: str, action_plan: dict):
     except Exception as e:
         error_details = traceback.format_exc()
         logger.error(f"[PIPELINE ERROR] Validation Stage Failed:\n{error_details}")
-        raise HTTPException(status_code=400, detail=f"Intent Validation failed: {e}\n\nDetails:\n{error_details}")
+        raise HTTPException(status_code=400, detail="Intent Validation failed. Check server logs.")
 
     # Dynamic Schema Evolution check
     try:
@@ -183,7 +183,7 @@ def run_pipeline(request_message: str, action_plan: dict):
     except Exception as e:
         error_details = traceback.format_exc()
         logger.error(f"[PIPELINE ERROR] Schema Evolution Stage Failed:\n{error_details}")
-        raise HTTPException(status_code=400, detail=f"Schema Evolution failed: {e}\n\nDetails:\n{error_details}")
+        raise HTTPException(status_code=400, detail="Schema Evolution failed. Check server logs.")
 
     # 3. Check for mutative command mismatch
     mutative_keywords = ["add", "sell", "update", "delete", "create", "insert", "remove", "modify", "clear"]
@@ -208,7 +208,7 @@ def run_pipeline(request_message: str, action_plan: dict):
     except Exception as e:
         error_details = traceback.format_exc()
         logger.error(f"[PIPELINE ERROR] SQL Generation / Execution Stage Failed:\n{error_details}")
-        raise HTTPException(status_code=400, detail=f"Database execution failed: {e}\n\nDetails:\n{error_details}")
+        raise HTTPException(status_code=400, detail="Database execution failed. Check server logs.")
 
     duration = time() - start_time
     logger.info(f"Stage 7: Pipeline Duration: {duration:.3f}s")
@@ -218,18 +218,7 @@ def run_pipeline(request_message: str, action_plan: dict):
     intent = normalized_plan.get("intent", "")
     draft_response = normalized_plan.get("response") or normalized_plan.get("message", "")
 
-    try:
-        response_msg = llm_engine.generate_final_response(
-            user_message=request_message,
-            language=language,
-            intent=intent,
-            execution_results=execution_results,
-            draft_response=draft_response
-        )
-    except Exception as e:
-        logger.error(f"Failed to generate final localized response: {e}")
-        response_msg = draft_response
-
+    response_msg = draft_response
     if not response_msg:
         if not execution_results:
             response_msg = "I couldn't understand any executable operations in your request."
@@ -278,7 +267,7 @@ def chat(request: ChatRequest):
             except Exception as e:
                 error_details = traceback.format_exc()
                 logger.error(f"Failed to execute confirmed delete_all:\n{error_details}")
-                raise HTTPException(status_code=500, detail=f"Failed to clear inventory: {e}")
+                raise HTTPException(status_code=500, detail="Failed to clear inventory. Check server logs.")
         elif msg_lower in ["no", "cancel", "n"]:
             logger.info("User cancelled pending DELETE_ALL_INVENTORY action.")
             _pending_action = None
@@ -298,10 +287,13 @@ def chat(request: ChatRequest):
     # 1. Call Gemini to parse intent
     try:
         action_plan = llm_engine.generate_action_plan(request.message)
+    except RateLimitExceeded as e:
+        logger.error(f"Gemini API Rate Limit Exceeded: {e}")
+        raise HTTPException(status_code=429, detail=str(e))
     except Exception as e:
         error_details = traceback.format_exc()
         logger.error(f"Gemini API failure during action plan generation:\n{error_details}")
-        raise HTTPException(status_code=400, detail=f"AI engine communication failure: {e}\n\nDetails:\n{error_details}")
+        raise HTTPException(status_code=400, detail="AI engine communication failure. Check server logs.")
         
     # 2. Run the intent resolution and database pipeline
     return run_pipeline(request.message, action_plan)
@@ -320,10 +312,13 @@ async def upload(file: UploadFile = File(...)):
             image_bytes=image_bytes,
             mime_type=mime_type
         )
+    except RateLimitExceeded as e:
+        logger.error(f"Gemini API Rate Limit Exceeded: {e}")
+        raise HTTPException(status_code=429, detail=str(e))
     except Exception as e:
         error_details = traceback.format_exc()
         logger.error(f"Gemini Multimodal API failure:\n{error_details}")
-        raise HTTPException(status_code=400, detail=f"AI engine communication failure: {e}\n\nDetails:\n{error_details}")
+        raise HTTPException(status_code=400, detail="AI engine communication failure. Check server logs.")
         
     # 2. Run the intent resolution and database pipeline
     return run_pipeline(f"Upload: {file.filename}", action_plan)

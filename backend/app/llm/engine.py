@@ -4,12 +4,16 @@ import logging
 import urllib.request
 import urllib.error
 import time
+import functools
 from sqlalchemy import inspect, text
 from app.core.database import engine as db_engine
 from dotenv import load_dotenv
 
 load_dotenv()
 logger = logging.getLogger(__name__)
+
+class RateLimitExceeded(Exception):
+    pass
 
 class LLMEngine:
     def __init__(self):
@@ -23,10 +27,12 @@ class LLMEngine:
                 with urllib.request.urlopen(req) as res:
                     return json.loads(res.read().decode("utf-8"))
             except urllib.error.HTTPError as e:
-                if e.code == 429 and attempt < max_retries - 1:
-                    logger.warning(f"Gemini API rate limited (429). Retrying in {delay}s...")
+                if e.code in (429, 503) and attempt < max_retries - 1:
+                    logger.warning(f"Gemini API rate limited/busy ({e.code}). Retrying in {delay}s...")
                     time.sleep(delay)
                     delay *= 2
+                elif e.code == 429:
+                    raise RateLimitExceeded("The AI service is temporarily busy. Please try again in a few moments.")
                 else:
                     raise e
 
@@ -62,10 +68,9 @@ class LLMEngine:
             logger.error(f"Error fetching DB state: {e}")
         return state
 
-    def generate_action_plan(self, text_input: str) -> dict:
-        logger.info(f"LLMEngine: Processing prompt: {text_input}")
-        db_state = self.get_db_state()
-        
+    @functools.lru_cache(maxsize=100)
+    def _cached_generate_action_plan(self, text_input: str, db_state_json: str) -> str:
+        # Caches the raw response text based on the text_input and the JSON representation of the DB state
         schema_def = {
             "language": "detected language",
             "intent": "user intent description",
@@ -100,7 +105,7 @@ The main table to use is "inventory", which must have these columns:
 - status: string (either "In Stock" if quantity > 0 else "Out of Stock")
 
 Here is the current state of the database:
-{json.dumps(db_state, indent=2)}
+{db_state_json}
 
 User request: "{text_input}"
 
@@ -140,7 +145,6 @@ Only return valid JSON. Do not write any explanations or markdown formatting out
             }
         }
 
-        # Do NOT catch exception silently. Let it bubble up to the pipeline stage.
         req = urllib.request.Request(
             url,
             data=json.dumps(payload).encode("utf-8"),
@@ -148,8 +152,15 @@ Only return valid JSON. Do not write any explanations or markdown formatting out
             method="POST"
         )
         response_data = self._send_request_with_retry(req)
-        response_text = response_data["candidates"][0]["content"]["parts"][0]["text"]
+        return response_data["candidates"][0]["content"]["parts"][0]["text"]
+
+    def generate_action_plan(self, text_input: str) -> dict:
+        logger.info(f"LLMEngine: Processing prompt: {text_input}")
+        db_state = self.get_db_state()
+        db_state_json = json.dumps(db_state, indent=2)
+        response_text = self._cached_generate_action_plan(text_input, db_state_json)
         return json.loads(response_text)
+
 
     def generate_multimodal_plan(self, text_prompt: str, image_bytes: bytes, mime_type: str) -> dict:
         import base64
@@ -244,45 +255,6 @@ Only return valid JSON. Do not write any explanations or markdown formatting out
         response_text = response_data["candidates"][0]["content"]["parts"][0]["text"]
         return json.loads(response_text)
 
-    def generate_final_response(self, user_message: str, language: str, intent: str, execution_results: list, draft_response: str) -> str:
-        logger.info(f"LLMEngine: Generating final response for user in language: {language}")
-        prompt = f"""
-You are the assistant for the shop inventory app named "Vita".
-The user said: "{user_message}"
-The detected language of the conversation is: "{language}"
-The parsed intent is: "{intent}"
-We executed the database operations and got the following results:
-{json.dumps(execution_results, indent=2)}
 
-Draft response was: "{draft_response}"
-
-Generate the final friendly response to the user.
-Requirements:
-1. Always respond in the detected language ("{language}") and script.
-2. Preserve mixed-language styles (e.g., Hinglish, Telugu-English) exactly as the user used.
-3. Do not translate.
-4. Integrate the execution results accurately (e.g. state what was added, sold, or display queried database records if any).
-5. If the draft response explicitly says "<Item> removed from inventory.", you MUST preserve that EXACT phrase.
-6. Only return the plain text message, no JSON wrapping. Do not wrap the response in quotes or anything else. Just the response text.
-"""
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={self.api_key}"
-        payload = {
-            "contents": [{
-                "parts": [{"text": prompt}]
-            }]
-        }
-        try:
-            req = urllib.request.Request(
-                url,
-                data=json.dumps(payload).encode("utf-8"),
-                headers={"Content-Type": "application/json"},
-                method="POST"
-            )
-            response_data = self._send_request_with_retry(req)
-            response_text = response_data["candidates"][0]["content"]["parts"][0]["text"].strip()
-            return response_text
-        except Exception as e:
-            logger.error(f"Failed to generate final response: {e}")
-            return draft_response
 
 llm_engine = LLMEngine()
