@@ -94,6 +94,11 @@ If adding/importing items:
 If recording sales:
 - If the item exists, update quantity by subtracting the sold quantity. Ensure quantity >= 0.
 - If not, explain in response that item was not found.
+If deleting/removing specific items (e.g. "remove eggs"):
+- Output a "delete" operation with "conditions" containing the item_name (e.g. {"item_name": "Eggs"}).
+- After successful delete respond exactly: "<Item Name> removed from inventory." (e.g., "Eggs removed from inventory.")
+If the user asks to clear all, delete everything, or remove all items:
+- Set "confirmation_required": true instead of generating SQL/operations.
 
 Multilingual Rules:
 - Let Gemini detect the input language.
@@ -105,6 +110,7 @@ Generate the action plan. Output format must be EXACTLY:
 {{
   "language": "detected language",
   "intent": "user intent description",
+  "confirmation_required": false,
   "operations": [
     {{
       "type": "create_table" | "insert" | "update" | "delete" | "select" | "alter_table",
@@ -168,6 +174,11 @@ User instruction: "{text_prompt}"
 Identify product names and quantities visible in the image.
 If item exists, update quantity (adding imports, subtracting sales).
 If item does not exist, insert it. Ensure table "inventory" is created if it does not exist.
+If deleting/removing specific items (e.g. "remove eggs"):
+- Output a "delete" operation with "conditions" containing the item_name (e.g. {"item_name": "Eggs"}).
+- After successful delete respond exactly: "<Item Name> removed from inventory." (e.g., "Eggs removed from inventory.")
+If the user asks to clear all, delete everything, or remove all items:
+- Set "confirmation_required": true instead of generating SQL/operations.
 
 Multilingual Rules:
 - Let Gemini detect the input language.
@@ -179,6 +190,7 @@ Generate the action plan. Output format must be EXACTLY:
 {{
   "language": "detected language",
   "intent": "user intent description",
+  "confirmation_required": false,
   "operations": [
     {{
       "type": "create_table" | "insert" | "update" | "delete" | "select" | "alter_table",
@@ -240,7 +252,8 @@ Requirements:
 2. Preserve mixed-language styles (e.g., Hinglish, Telugu-English) exactly as the user used.
 3. Do not translate.
 4. Integrate the execution results accurately (e.g. state what was added, sold, or display queried database records if any).
-5. Only return the plain text message, no JSON wrapping. Do not wrap the response in quotes or anything else. Just the response text.
+5. If the draft response explicitly says "<Item> removed from inventory.", you MUST preserve that EXACT phrase.
+6. Only return the plain text message, no JSON wrapping. Do not wrap the response in quotes or anything else. Just the response text.
 """
         url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={self.api_key}"
         payload = {

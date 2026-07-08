@@ -77,10 +77,16 @@ class SQLGenerator:
             for col, val in conditions.items():
                 col_clean = col.lower().strip()
                 param_name = f"cond_{col_clean}"
-                where_clauses.append(f"{col_clean} = :{param_name}")
+                if isinstance(val, str):
+                    where_clauses.append(f"LOWER({col_clean}) = LOWER(:{param_name})")
+                else:
+                    where_clauses.append(f"{col_clean} = :{param_name}")
                 params[param_name] = val
                 
-            where_str = f" WHERE {' AND '.join(where_clauses)}" if where_clauses else ""
+            if not where_clauses:
+                raise ValueError("DELETE operation must specify a WHERE clause.")
+                
+            where_str = f" WHERE {' AND '.join(where_clauses)}"
             sql = f"DELETE FROM {target}{where_str};"
             
         elif op_type == "select":

@@ -23,6 +23,7 @@ class ChatResponse(BaseModel):
     message: str
     operations_executed: list = []
     data_payload: dict = None
+    confirmation_required: bool = False
 
 def get_inventory_data():
     try:
@@ -136,6 +137,19 @@ def run_pipeline(request_message: str, action_plan: dict):
     logger.info("=================== PIPELINE START ===================")
     logger.info(f"Stage 1: User Prompt: {request_message}")
     logger.info(f"Stage 2: Gemini Response / Parsed Intent: {json.dumps(action_plan)}")
+
+    if action_plan.get("confirmation_required"):
+        logger.info("Stage 3: Confirmation Required - skipping execution.")
+        draft_response = action_plan.get("response") or action_plan.get("message") or "Are you sure you want to clear all items? Please confirm."
+        return {
+            "message": draft_response,
+            "operations_executed": [],
+            "data_payload": {
+                "added_items": [],
+                "total_inventory": get_inventory_data()
+            },
+            "confirmation_required": True
+        }
 
     # 1. Normalization
     try:
