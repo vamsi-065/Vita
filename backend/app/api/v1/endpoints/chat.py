@@ -17,6 +17,8 @@ from app.services.sql_generator import SQLGenerator
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
+_pending_action = None
+
 class ChatRequest(BaseModel):
     message: str = Field(..., min_length=1, max_length=4000)
 
@@ -141,6 +143,10 @@ def run_pipeline(request_message: str, action_plan: dict):
 
     if action_plan.get("confirmation_required"):
         logger.info("Stage 3: Confirmation Required - skipping execution.")
+        
+        global _pending_action
+        _pending_action = {"type": "DELETE_ALL_INVENTORY"}
+        
         draft_response = action_plan.get("response") or action_plan.get("message") or "Are you sure you want to clear all items? Please confirm."
         return {
             "message": draft_response,
@@ -249,8 +255,46 @@ def run_pipeline(request_message: str, action_plan: dict):
 
 @router.post("/", response_model=ChatResponse)
 def chat(request: ChatRequest):
+    global _pending_action
     logger.info(f"Initiated chat request: {request.message}")
     
+    msg_lower = request.message.strip().lower()
+    if _pending_action and _pending_action.get("type") == "DELETE_ALL_INVENTORY":
+        if msg_lower in ["yes", "y", "confirm", "proceed", "continue"]:
+            logger.info("User confirmed pending DELETE_ALL_INVENTORY action.")
+            try:
+                with database_service.transaction() as session:
+                    session.execute(text("DELETE FROM inventory;"))
+                _pending_action = None
+                return {
+                    "message": "Inventory cleared successfully.",
+                    "operations_executed": [{"type": "delete_all", "target": "inventory"}],
+                    "data_payload": {
+                        "added_items": [],
+                        "total_inventory": get_inventory_data()
+                    },
+                    "confirmation_required": False
+                }
+            except Exception as e:
+                error_details = traceback.format_exc()
+                logger.error(f"Failed to execute confirmed delete_all:\n{error_details}")
+                raise HTTPException(status_code=500, detail=f"Failed to clear inventory: {e}")
+        elif msg_lower in ["no", "cancel", "n"]:
+            logger.info("User cancelled pending DELETE_ALL_INVENTORY action.")
+            _pending_action = None
+            return {
+                "message": "Operation cancelled.",
+                "operations_executed": [],
+                "data_payload": {
+                    "added_items": [],
+                    "total_inventory": get_inventory_data()
+                },
+                "confirmation_required": False
+            }
+        else:
+            # If they reply with something else entirely, clear pending state and process normally.
+            _pending_action = None
+
     # 1. Call Gemini to parse intent
     try:
         action_plan = llm_engine.generate_action_plan(request.message)
