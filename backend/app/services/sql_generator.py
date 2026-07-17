@@ -50,7 +50,7 @@ class SQLGenerator:
                 
             sql = f"INSERT INTO {target} ({', '.join(columns)}) VALUES ({', '.join(placeholders)});"
             
-        elif op_type == "update":
+        elif op_type == "update" or op_type == "set_limit":
             data = op.get("data", {})
             conditions = op.get("conditions", {})
             
@@ -65,8 +65,13 @@ class SQLGenerator:
             for col, val in conditions.items():
                 col_clean = col.lower().strip()
                 param_name = f"cond_{col_clean}"
-                where_clauses.append(f"{col_clean} = :{param_name}")
-                params[param_name] = val
+                
+                if op_type == "set_limit" and isinstance(val, str) and col_clean == "item_name":
+                    where_clauses.append(f"{col_clean} ILIKE :{param_name}")
+                    params[param_name] = val
+                else:
+                    where_clauses.append(f"{col_clean} = :{param_name}")
+                    params[param_name] = val
                 
             where_str = f" WHERE {' AND '.join(where_clauses)}" if where_clauses else ""
             sql = f"UPDATE {target} SET {', '.join(set_clauses)}{where_str};"
@@ -98,8 +103,12 @@ class SQLGenerator:
             for col, val in conditions.items():
                 col_clean = col.lower().strip()
                 param_name = f"cond_{col_clean}"
-                where_clauses.append(f"{col_clean} = :{param_name}")
-                params[param_name] = val
+                if isinstance(val, str):
+                    where_clauses.append(f"{col_clean} ILIKE :{param_name}")
+                    params[param_name] = f"%{val}%"
+                else:
+                    where_clauses.append(f"{col_clean} = :{param_name}")
+                    params[param_name] = val
                 
             where_str = f" WHERE {' AND '.join(where_clauses)}" if where_clauses else ""
             sql = f"SELECT * FROM {target}{where_str};"

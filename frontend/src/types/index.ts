@@ -2,6 +2,7 @@ export interface Message {
   id: string;
   role: 'user' | 'assistant';
   content: string;
+  data?: any[];
 }
 
 export interface ChatSession {
@@ -32,6 +33,7 @@ export interface ChatResponse {
   data_payload?: {
     added_items: any[];
     total_inventory: any[];
+    queried_data?: any[];
   };
 }
 

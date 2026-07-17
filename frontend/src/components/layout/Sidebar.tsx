@@ -104,7 +104,7 @@ export function Sidebar({ mobile = false, onClose }: SidebarProps) {
                 <BellOff size={16} className="text-on-surface-variant" />
               )}
               <div>
-                <p className="text-xs font-medium text-on-surface">WhatsApp alerts</p>
+                <p className="text-xs font-medium text-on-surface">Telegram alerts</p>
                 <p className="text-[11px] text-on-surface-variant">Stock & business updates</p>
               </div>
             </div>

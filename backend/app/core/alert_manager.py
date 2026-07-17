@@ -1,18 +1,17 @@
 import os
 import logging
+from datetime import datetime
 from sqlalchemy.orm import Session
 from sqlalchemy import text, inspect
 from app.crud.alert import get_alert_rules, create_alert
 from app.schemas.alert import AlertCreate
 from app.models.alert import NotificationLog
-from app.services.whatsapp import whatsapp_client
+from app.services.telegram import telegram_client
 
 logger = logging.getLogger(__name__)
 
-WHATSAPP_TO_NUMBER = os.getenv("WHATSAPP_TO_NUMBER")
-
-def send_whatsapp_notification(db: Session, alert_id: int, message: str):
-    logger.info(f"Sending WhatsApp notification for alert {alert_id}")
+def send_telegram_notification(db: Session, alert_id: int, message: str, alert_type: str = "General"):
+    logger.info(f"Sending Telegram notification for alert {alert_id}")
     
     # Store pending state
     log = NotificationLog(alert_id=alert_id, message=message, status="PENDING")
@@ -20,13 +19,9 @@ def send_whatsapp_notification(db: Session, alert_id: int, message: str):
     db.commit()
     db.refresh(log)
     
-    if not WHATSAPP_TO_NUMBER:
-        log.status = "FAILED"
-        log.error_reason = "WHATSAPP_TO_NUMBER not configured"
-        db.commit()
-        return
-
-    success, error = whatsapp_client.send_text_message(WHATSAPP_TO_NUMBER, message)
+    formatted_message = f"🚨 Alert\n\nType: {alert_type}\nTime: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\nMessage:\n{message}"
+    
+    success, error = telegram_client.send_telegram_alert(formatted_message)
     
     if success:
         log.status = "SENT"
@@ -60,7 +55,7 @@ def generate_report(db: Session, report_type: str):
     message = f"{report_type.replace('_', ' ').title()}: Total Unique Products: {item_count}, Total Units in Stock: {total_qty}, Low Stock Products (< 5 units): {low_stock_count}."
         
     logger.info(f"Real report generated: {message}")
-    send_whatsapp_notification(db, None, message)
+    # Telegram notifications are disabled for reports
 
 def evaluate_rules(db: Session):
     logger.info("Evaluating real alert rules against Supabase PostgreSQL...")
@@ -97,7 +92,7 @@ def evaluate_rules(db: Session):
                     
                     logger.info(f"Alert triggered: {message}")
                     alert = create_alert(db, AlertCreate(rule_id=rule.id, message=message))
-                    send_whatsapp_notification(db, alert.id, message)
+                    # Telegram notifications are disabled for global quantity rules
             except Exception as e:
                 logger.error(f"Error evaluating quantity alert rule: {e}")
                 
@@ -117,7 +112,7 @@ def evaluate_rules(db: Session):
                         message = f"Expiry Alert: {item_name} expires in {exp_days} days (Threshold: {rule.threshold})"
                         logger.info(f"Alert triggered: {message}")
                         alert = create_alert(db, AlertCreate(rule_id=rule.id, message=message))
-                        send_whatsapp_notification(db, alert.id, message)
+                        # Telegram notifications are disabled for expiry alerts
                 except Exception as e:
                     logger.error(f"Error evaluating expiry alert rule: {e}")
                     
@@ -136,6 +131,37 @@ def evaluate_rules(db: Session):
                     message = f"Credit Alert: Customer {cust_name} pending amount is ${amount} (Threshold: {rule.threshold})"
                     logger.info(f"Alert triggered: {message}")
                     alert = create_alert(db, AlertCreate(rule_id=rule.id, message=message))
-                    send_whatsapp_notification(db, alert.id, message)
+                    # Telegram notifications are disabled for credit alerts
             except Exception as e:
                 logger.error(f"Error evaluating credit alert rule: {e}")
+
+    # Evaluate dynamic stock limit alerts for Telegram
+    if "inventory" in tables:
+        try:
+            cols = [c["name"] for c in inspector.get_columns("inventory")]
+            has_alert_limit = "alert_limit" in cols
+            
+            if has_alert_limit:
+                query = text("SELECT item_name, quantity, alert_limit FROM inventory WHERE (alert_limit IS NOT NULL AND quantity <= alert_limit) OR (alert_limit IS NULL AND quantity <= 0)")
+            else:
+                query = text("SELECT item_name, quantity FROM inventory WHERE quantity <= 0")
+                
+            stock_items = db.execute(query).fetchall()
+            
+            for item in stock_items:
+                item_name = item[0]
+                qty = item[1]
+                
+                if has_alert_limit and item[2] is not None:
+                    limit = item[2]
+                    message = f"Stock Alert: {item_name} has fallen to or below the configured limit (Current: {qty}, Limit: {limit})."
+                else:
+                    message = f"Out of Stock Alert: {item_name} is currently out of stock (Current: {qty})."
+                    
+                logger.info(f"Telegram Stock Alert triggered: {message}")
+                # Create a general alert log in the database
+                alert = create_alert(db, AlertCreate(rule_id=None, message=message))
+                send_telegram_notification(db, alert.id, message, "Stock Limit")
+                
+        except Exception as e:
+            logger.error(f"Error evaluating stock limit alerts: {e}")

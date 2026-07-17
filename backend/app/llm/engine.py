@@ -77,21 +77,22 @@ class LLMEngine:
             "confirmation_required": False,
             "operations": [
                 {
-                    "type": "create_table | insert | update | delete | select | alter_table",
+                    "type": "create_table | insert | update | delete | select | alter_table | set_limit",
                     "target": "table_name",
                     "data": {},
                     "conditions": {},
-                    "columns": []
+                    "columns": [],
+                    "meta": {}
                 }
             ],
-            "response": "draft friendly response in user's detected language and script"
+            "response": "draft friendly response in user's same language and script"
         }
         schema_json = json.dumps(schema_def, indent=2)
 
         prompt = f"""
 You are the database planning engine for a shop inventory app named "Vita".
-Your job is to parse the user's request and output a JSON object containing:
-1. "language": Detect the language and script of the user's input (e.g. English, Hinglish, Spanish, Telugu, Telugu-English mixed, etc.).
+Your job is to analyze the user's intent and output a JSON object containing:
+1. "language": Detect the language and script of the user's input (e.g. English, Hinglish, Telugu).
 2. "intent": A brief description of what the user wants to do.
 3. "operations": A list of database operations to modify the database.
 4. "response": A draft friendly response in the user's same language and script.
@@ -103,6 +104,7 @@ The main table to use is "inventory", which must have these columns:
 - item_name: string (unique name of the product, e.g., "Bananas", "Apples")
 - quantity: integer (current count in stock)
 - status: string (either "In Stock" if quantity > 0 else "Out of Stock")
+- alert_limit: integer (optional, threshold for low stock alert. Update this if user sets/removes a limit)
 
 Here is the current state of the database:
 {db_state_json}
@@ -113,9 +115,16 @@ Decide whether to CREATE the "inventory" table first if it does not exist in the
 If adding/importing items:
 - If the item exists in "inventory", update quantity by adding new quantity.
 - If it does not exist, insert a new record.
-If recording sales:
-- If the item exists, update quantity by subtracting the sold quantity. Ensure quantity >= 0.
-- If not, explain in response that item was not found.
+If recording sales or removing items:
+- First check the available quantity of the item in the current state.
+- You MUST output an "update" operation and include a "meta" object with "requested_deduction" set to the exact amount the user wants to remove. 
+- Do not clamp the quantity to 0. Calculate the new quantity by subtracting the requested amount from the current quantity, even if it results in a negative number (the backend will perform strict validation).
+- If the item does not exist, explain in response that item was not found.
+If the user asks to set, update, or remove an alert limit / threshold for a product (e.g. "set limit 5 for eggs", "alert me when rice is below 10"):
+- Output a "set_limit" operation for "inventory".
+- Set "conditions" to match the item name (e.g. {"item_name": "Eggs"}).
+- Set "alert_limit" in "data" to the requested number. To remove a limit, set it to null.
+- Draft response: "Alert limit for <Item Name> has been set to <Limit>." (e.g., "Alert limit for Eggs has been set to 5.")
 If deleting/removing specific items (e.g. "remove eggs"):
 - Output a "delete" operation with "conditions" containing the item_name (e.g. {{"item_name": "Eggs"}}).
 - After successful delete respond exactly: "<Item Name> removed from inventory." (e.g., "Eggs removed from inventory.")
@@ -123,6 +132,10 @@ If the user asks to clear all, delete everything, or remove all items:
 - Set "confirmation_required": true instead of generating SQL/operations.
 If the user explicitly confirms clearing the entire inventory (e.g. "confirm delete all", "yes clear everything"):
 - Output a "delete_all" operation with target "inventory" and set "confirmation_required": false.
+If the user asks to see, show, list, or display inventory, or searches for a product by name (e.g., "show inventory", "search for milk", "do I have eggs", "show out-of-stock items", "find rice"):
+- Output a "select" operation for "inventory".
+- If searching by name, add "item_name" to "conditions" (e.g. {"item_name": "Milk"}). The backend will handle partial matching.
+- Do not output "select" for normal conversational responses unless they explicitly ask to see inventory/products.
 
 Multilingual Rules:
 - Let Gemini detect the input language.
@@ -174,11 +187,12 @@ Only return valid JSON. Do not write any explanations or markdown formatting out
             "confirmation_required": False,
             "operations": [
                 {
-                    "type": "create_table | insert | update | delete | select | alter_table",
+                    "type": "create_table | insert | update | delete | select | alter_table | set_limit",
                     "target": "table_name",
                     "data": {},
                     "conditions": {},
-                    "columns": []
+                    "columns": [],
+                    "meta": {}
                 }
             ],
             "response": "draft friendly response in user's same language and script"
@@ -198,6 +212,7 @@ The main table to use is "inventory", which must have these columns:
 - item_name: string (unique name of the product, e.g., "Bananas", "Apples")
 - quantity: integer (current count in stock)
 - status: string (either "In Stock" if quantity > 0 else "Out of Stock")
+- alert_limit: integer (optional, threshold for low stock alert. Update this if user sets/removes a limit)
 
 Here is the current state of the database:
 {json.dumps(db_state, indent=2)}
@@ -206,7 +221,14 @@ User instruction: "{text_prompt}"
 
 Identify product names and quantities visible in the image.
 If item exists, update quantity (adding imports, subtracting sales).
+- First check the available quantity of the item in the current state when recording sales.
+- You MUST output an "update" operation and include a "meta" object with "requested_deduction" set to the exact amount the user wants to remove.
+- Do not clamp the quantity to 0. Calculate the new quantity by subtracting the requested amount from the current quantity, even if it results in a negative number (the backend will perform strict validation).
 If item does not exist, insert it. Ensure table "inventory" is created if it does not exist.
+If the user asks to set, update, or remove an alert limit / threshold for a product (e.g. "set limit 5 for eggs", "alert me when rice is below 10"):
+- Output a "set_limit" operation targeting the item in "conditions".
+- Set "alert_limit" in "data" to the requested number, or null to remove it.
+- Draft response: "Alert limit for <Item Name> has been set to <Limit>."
 If deleting/removing specific items (e.g. "remove eggs"):
 - Output a "delete" operation with "conditions" containing the item_name (e.g. {{"item_name": "Eggs"}}).
 - After successful delete respond exactly: "<Item Name> removed from inventory." (e.g., "Eggs removed from inventory.")
@@ -214,6 +236,10 @@ If the user asks to clear all, delete everything, or remove all items:
 - Set "confirmation_required": true instead of generating SQL/operations.
 If the user explicitly confirms clearing the entire inventory (e.g. "confirm delete all", "yes clear everything"):
 - Output a "delete_all" operation with target "inventory" and set "confirmation_required": false.
+If the user asks to see, show, list, or display inventory, or searches for a product by name (e.g., "show inventory", "search for milk", "do I have eggs", "show out-of-stock items", "find rice"):
+- Output a "select" operation for "inventory".
+- If searching by name, add "item_name" to "conditions" (e.g. {"item_name": "Milk"}). The backend will handle partial matching.
+- Do not output "select" for normal conversational responses unless they explicitly ask to see inventory/products.
 
 Multilingual Rules:
 - Let Gemini detect the input language.

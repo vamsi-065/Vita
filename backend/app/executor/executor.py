@@ -40,7 +40,15 @@ class Executor:
             elif op_type == "alter_table":
                 results.append(f"Altered table structure for '{target}'.")
             elif op_type == "select":
-                results.append(f"Selected records from '{target}'.")
+                rows = [dict(r) for r in res.mappings().all()] if hasattr(res, "mappings") else []
+                results.append({"type": "select", "data": rows})
+            elif op_type == "set_limit":
+                if row_count == 0:
+                    results.append({"type": "error", "message": "Product not found."})
+                else:
+                    item_name = op.get("conditions", {}).get("item_name", "item")
+                    limit_val = op.get("data", {}).get("alert_limit", "null")
+                    results.append(f"Alert limit for {item_name} has been set to {limit_val}.")
                 
         return results
 

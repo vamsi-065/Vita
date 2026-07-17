@@ -33,7 +33,8 @@ export const Chat = () => {
         addMessage(activeChatId, { 
           id: (Date.now() + 1).toString(), 
           role: 'assistant', 
-          content: response.message 
+          content: response.message,
+          data: response.data_payload?.queried_data?.length ? response.data_payload.queried_data : undefined
         });
       } else {
         setError("Invalid response format received from AI agent.");
@@ -98,6 +99,33 @@ export const Chat = () => {
               {msg.role === 'user' ? 'You' : 'AI Agent'}
             </strong>
             <div style={{ whiteSpace: 'pre-wrap', lineHeight: '1.5' }}>{msg.content}</div>
+            
+            {msg.data && msg.data.length > 0 && (
+              <div style={{ marginTop: '15px', overflowX: 'auto', backgroundColor: '#111', borderRadius: '6px', border: '1px solid #333' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '14px' }}>
+                  <thead>
+                    <tr style={{ backgroundColor: '#222', textAlign: 'left' }}>
+                      {Object.keys(msg.data[0]).map(col => (
+                        <th key={col} style={{ padding: '10px', borderBottom: '1px solid #444', textTransform: 'capitalize' }}>
+                          {col.replace(/_/g, ' ')}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {msg.data.map((row, idx) => (
+                      <tr key={idx} style={{ borderBottom: '1px solid #333', backgroundColor: idx % 2 === 0 ? 'transparent' : '#1a1a1a' }}>
+                        {Object.keys(msg.data[0]).map(col => (
+                          <td key={col} style={{ padding: '10px', whiteSpace: 'nowrap' }}>
+                            {String(row[col] ?? '')}
+                          </td>
+                        ))}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
         ))}
         

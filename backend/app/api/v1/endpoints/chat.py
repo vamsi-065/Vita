@@ -189,8 +189,42 @@ def run_pipeline(request_message: str, action_plan: dict):
     mutative_keywords = ["add", "sell", "update", "delete", "create", "insert", "remove", "modify", "clear"]
     is_mutative = any(kw in request_message.lower() for kw in mutative_keywords)
     if is_mutative and not valid_ops:
-        logger.error("[PIPELINE ERROR] Mutative request detected but parsed 0 valid database operations.")
-        raise HTTPException(status_code=400, detail="Failed to parse user intent into database operations.")
+        draft = normalized_plan.get("response") or normalized_plan.get("message", "")
+        if draft:
+            logger.info(f"Mutative request yielded 0 operations, but LLM provided response: {draft}")
+        else:
+            logger.error("[PIPELINE ERROR] Mutative request detected but parsed 0 valid database operations.")
+            raise HTTPException(status_code=400, detail="Failed to parse user intent into database operations.")
+
+    # 3.5 Strict Stock Validation
+    inventory_data = get_inventory_data()
+    for op in valid_ops:
+        if op.get("type") == "update" and op.get("target") == "inventory":
+            item_name = op.get("conditions", {}).get("item_name")
+            new_quantity = op.get("data", {}).get("quantity")
+            requested_deduction = op.get("meta", {}).get("requested_deduction")
+            
+            if item_name:
+                current_item = next((item for item in inventory_data if item["item_name"].lower() == item_name.lower()), None)
+                if current_item:
+                    current_stock = current_item["quantity"]
+                    
+                    # Deduce requested_amount if meta was not provided, but new_quantity went negative
+                    if requested_deduction is None and new_quantity is not None and new_quantity < 0:
+                        requested_deduction = current_stock - new_quantity
+
+                    if requested_deduction is not None and requested_deduction > current_stock:
+                        error_msg = f"Cannot remove {requested_deduction} {current_item['item_name']}. Only {current_stock} are available in stock."
+                        return {
+                            "message": error_msg,
+                            "operations_executed": [],
+                            "data_payload": {
+                                "added_items": [],
+                                "total_inventory": inventory_data,
+                                "queried_data": []
+                            },
+                            "confirmation_required": False
+                        }
 
     # 4. Database Transaction, SQL Generation & Execution
     execution_results = []
@@ -218,15 +252,35 @@ def run_pipeline(request_message: str, action_plan: dict):
     intent = normalized_plan.get("intent", "")
     draft_response = normalized_plan.get("response") or normalized_plan.get("message", "")
 
+    queried_data = []
+    formatted_execution_results = []
+    error_message = None
+    for res in execution_results:
+        if isinstance(res, dict):
+            if res.get("type") == "select":
+                queried_data.extend(res.get("data", []))
+                formatted_execution_results.append(f"Selected {len(res.get('data', []))} records.")
+            elif res.get("type") == "error":
+                error_message = res.get("message", "Error")
+                formatted_execution_results.append(error_message)
+        else:
+            formatted_execution_results.append(str(res))
+
     response_msg = draft_response
-    if not response_msg:
-        if not execution_results:
+    if error_message:
+        response_msg = error_message
+    elif not response_msg:
+        if not formatted_execution_results:
             response_msg = "I couldn't understand any executable operations in your request."
         else:
             response_msg = (
                 f"Successfully executed the following operations:\n"
-                + "\n".join([f"- {res}" for res in execution_results])
+                + "\n".join([f"- {res}" for res in formatted_execution_results])
             )
+
+    has_select_op = any(op.get("type") == "select" for op in valid_ops)
+    if has_select_op and not queried_data:
+        response_msg = "No matching products found."
 
     added_items = []
     for op in valid_ops:
@@ -238,7 +292,8 @@ def run_pipeline(request_message: str, action_plan: dict):
         "operations_executed": valid_ops,
         "data_payload": {
             "added_items": added_items,
-            "total_inventory": get_inventory_data()
+            "total_inventory": get_inventory_data(),
+            "queried_data": queried_data
         }
     }
 
