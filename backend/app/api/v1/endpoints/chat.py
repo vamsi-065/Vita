@@ -29,16 +29,15 @@ class ChatResponse(BaseModel):
     data_payload: dict = None
     confirmation_required: bool = False
 
-def get_inventory_data(user_id: str):
+def get_inventory_data():
     try:
         inspector = inspect(engine)
         if "inventory" in inspector.get_table_names():
             with engine.connect() as conn:
-                result = conn.execute(text("SELECT * FROM inventory WHERE user_id = :uid ORDER BY id DESC"), {"uid": user_id})
+                result = conn.execute(text("SELECT * FROM inventory ORDER BY id DESC"))
                 rows = []
                 for row in result.mappings():
                     d = dict(row)
-                    d.pop("user_id", None)
                     rows.append(d)
                 return rows
     except Exception as e:
@@ -141,7 +140,7 @@ def check_and_evolve_schema(operations: list):
         except Exception as e:
             logger.error(f"Error resetting SQLAlchemy metadata after schema change: {e}")
 
-def run_pipeline(request_message: str, action_plan: dict, user_id: str):
+def run_pipeline(request_message: str, action_plan: dict):
     start_time = time()
     logger.info("=================== PIPELINE START ===================")
     logger.info(f"Stage 1: User Prompt: {request_message}")
@@ -242,7 +241,7 @@ def run_pipeline(request_message: str, action_plan: dict, user_id: str):
                 logger.info(f"Stage 5: Generated SQL: {sql} | Parameters: {params}")
                 
                 # Execution
-                res = executor.execute_ops(session, [op], user_id=user_id)
+                res = executor.execute_ops(session, [op])
                 execution_results.extend(res)
                 logger.info(f"Stage 6: SQL Execution Success: {res}")
     except Exception as e:
@@ -298,7 +297,7 @@ def run_pipeline(request_message: str, action_plan: dict, user_id: str):
         "operations_executed": valid_ops,
         "data_payload": {
             "added_items": added_items,
-            "total_inventory": get_inventory_data(user_id),
+            "total_inventory": get_inventory_data(),
             "queried_data": queried_data
         }
     }
@@ -310,20 +309,20 @@ def chat(request: ChatRequest, current_user = Depends(get_current_user)):
     logger.info(f"Initiated chat request: {request.message}")
     
     msg_lower = request.message.strip().lower()
-    pending = _pending_action.get(user_id)
+    pending = _pending_action
     if pending and pending.get("type") == "DELETE_ALL_INVENTORY":
         if msg_lower in ["yes", "y", "confirm", "proceed", "continue"]:
             logger.info("User confirmed pending DELETE_ALL_INVENTORY action.")
             try:
                 with database_service.transaction() as session:
-                    session.execute(text("DELETE FROM inventory WHERE user_id = :uid;"), {"uid": user_id})
-                _pending_action.pop(user_id, None)
+                    session.execute(text("DELETE FROM inventory;"))
+                _pending_action.clear()
                 return {
                     "message": "Inventory cleared successfully.",
                     "operations_executed": [{"type": "delete_all", "target": "inventory"}],
                     "data_payload": {
                         "added_items": [],
-                        "total_inventory": get_inventory_data(user_id)
+                        "total_inventory": get_inventory_data()
                     },
                     "confirmation_required": False
                 }
@@ -333,7 +332,7 @@ def chat(request: ChatRequest, current_user = Depends(get_current_user)):
                 raise HTTPException(status_code=500, detail="Failed to clear inventory. Check server logs.")
         elif msg_lower in ["no", "cancel", "n"]:
             logger.info("User cancelled pending DELETE_ALL_INVENTORY action.")
-            _pending_action.pop(user_id, None)
+            _pending_action.clear()
             return {
                 "message": "Operation cancelled.",
                 "operations_executed": [],
@@ -345,11 +344,11 @@ def chat(request: ChatRequest, current_user = Depends(get_current_user)):
             }
         else:
             # If they reply with something else entirely, clear pending state and process normally.
-            _pending_action.pop(user_id, None)
+            _pending_action.clear()
 
     # 1. Call Gemini to parse intent
     try:
-        action_plan = llm_engine.generate_action_plan(request.message, user_id)
+        action_plan = llm_engine.generate_action_plan(request.message)
     except RateLimitExceeded as e:
         logger.error(f"Gemini API Rate Limit Exceeded: {e}")
         raise HTTPException(status_code=429, detail=str(e))
@@ -359,11 +358,10 @@ def chat(request: ChatRequest, current_user = Depends(get_current_user)):
         raise HTTPException(status_code=500, detail=f"AI engine communication failure: {str(e)}")
         
     # 2. Run the intent resolution and database pipeline
-    return run_pipeline(request.message, action_plan, user_id)
+    return run_pipeline(request.message, action_plan)
 
 @router.post("/upload", response_model=ChatResponse)
 async def upload(file: UploadFile = File(...), current_user = Depends(get_current_user)):
-    user_id = str(current_user.id)
     logger.info(f"Uploaded file: {file.filename}")
     
     image_bytes = await file.read()
@@ -374,8 +372,7 @@ async def upload(file: UploadFile = File(...), current_user = Depends(get_curren
         action_plan = llm_engine.generate_multimodal_plan(
             text_prompt="Please analyze this document/photo and update the inventory.",
             image_bytes=image_bytes,
-            mime_type=mime_type,
-            user_id=user_id
+            mime_type=mime_type
         )
     except RateLimitExceeded as e:
         logger.error(f"Gemini API Rate Limit Exceeded: {e}")
@@ -386,4 +383,4 @@ async def upload(file: UploadFile = File(...), current_user = Depends(get_curren
         raise HTTPException(status_code=500, detail=f"AI engine communication failure: {str(e)}")
         
     # 2. Run the intent resolution and database pipeline
-    return run_pipeline(f"Upload: {file.filename}", action_plan, user_id)
+    return run_pipeline(f"Upload: {file.filename}", action_plan)

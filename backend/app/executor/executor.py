@@ -9,7 +9,7 @@ class Executor:
     """
     Executes DDL and DML operations securely via parameterized dynamic repository queries.
     """
-    def execute_ops(self, session: Session, operations: list, user_id: str = None) -> list:
+    def execute_ops(self, session: Session, operations: list) -> list:
         logger.info(f"Executor: Executing {len(operations)} operations...")
         results = []
         repo = DynamicRepository(session)
@@ -19,7 +19,7 @@ class Executor:
             target = op.get("target", "")
             
             # Generate parameterized SQL and mapping parameters
-            sql, params = SQLGenerator.generate(op, user_id=user_id)
+            sql, params = SQLGenerator.generate(op)
             
             # Execute SQL within the session transaction boundary
             res = repo.execute_statement(sql, params)
@@ -28,14 +28,7 @@ class Executor:
             row_count = res.rowcount if hasattr(res, "rowcount") else None
             
             if op_type == "create_table":
-                # Automatically apply RLS policies for newly created tables
-                repo.execute_statement(f"ALTER TABLE {target} ENABLE ROW LEVEL SECURITY;", {})
-                repo.execute_statement(f"DROP POLICY IF EXISTS \"{target}_isolation_policy\" ON {target};", {})
-                repo.execute_statement(
-                    f"CREATE POLICY \"{target}_isolation_policy\" ON {target} FOR ALL USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);", 
-                    {}
-                )
-                results.append(f"Successfully created table '{target}' and applied RLS isolation.")
+                results.append(f"Successfully created table '{target}'.")
             elif op_type == "insert":
                 results.append(f"Inserted record into '{target}'.")
             elif op_type == "update":

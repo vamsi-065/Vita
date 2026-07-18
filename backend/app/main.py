@@ -50,14 +50,20 @@ def run_startup_checks():
         logger.critical(f"[STARTUP FAILED] Schema creation failed: {e}")
         sys.exit(1)
         
-    # 4. Database connectivity self-test
+    # 4. Verifying CRUD engine (self-test)
     try:
-        logger.info("Verifying database connectivity...")
+        logger.info("Verifying CRUD engine...")
         with database_service.transaction() as session:
-            session.execute(text("SELECT 1;"))
-        logger.info("Database connectivity validated successfully.")
+            # We insert a test record, update it, select it, then delete it to verify the AI's sql generator won't fail.
+            session.execute(text("INSERT INTO inventory (item_name, quantity, status) VALUES ('startup_test_banana', 10, 'In Stock');"))
+            session.execute(text("UPDATE inventory SET quantity = 20 WHERE item_name = 'startup_test_banana';"))
+            res = session.execute(text("SELECT quantity FROM inventory WHERE item_name = 'startup_test_banana';")).fetchone()
+            if not res or res[0] != 20:
+                raise Exception("CRUD update/select verification failed.")
+            session.execute(text("DELETE FROM inventory WHERE item_name = 'startup_test_banana';"))
+        logger.info("CRUD engine validated successfully.")
     except Exception as e:
-        logger.critical(f"[STARTUP FAILED] Database connectivity test failed: {e}")
+        logger.critical(f"[STARTUP FAILED] CRUD engine test failed: {e}")
         sys.exit(1)
         
     # 5. Verify GEMINI_API_KEY

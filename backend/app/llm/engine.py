@@ -56,25 +56,21 @@ class LLMEngine:
             logger.error(f"LLMEngine validation failed: {e}")
             raise ConnectionError(f"Failed to authenticate with Gemini or access models/gemini-2.5-flash: {e}")
 
-    def get_db_state(self, user_id: str) -> dict:
+    def get_db_state(self) -> dict:
         state = {}
         try:
             inspector = inspect(db_engine)
             for table_name in inspector.get_table_names():
                 columns = [col['name'] for col in inspector.get_columns(table_name)]
-                if "user_id" not in columns:
-                    continue # Do not expose system/admin tables to LLM
+                # Optionally filter tables here if you want to hide auth/system tables
                     
                 with db_engine.connect() as conn:
                     result = conn.execute(
-                        text(f"SELECT * FROM {table_name} WHERE user_id = :user_id"),
-                        {"user_id": user_id}
+                        text(f"SELECT * FROM {table_name}")
                     )
-                    # Convert to list of dicts, but omit user_id from the AI's view to save tokens/confusion
                     rows = []
                     for row in result.mappings():
                         row_dict = dict(row)
-                        row_dict.pop('user_id', None)
                         rows.append(row_dict)
                     state[table_name] = rows
         except Exception as e:
@@ -180,18 +176,18 @@ Only return valid JSON. Do not write any explanations or markdown formatting out
         response_data = self._send_request_with_retry(req)
         return response_data["candidates"][0]["content"]["parts"][0]["text"]
 
-    def generate_action_plan(self, text_input: str, user_id: str) -> dict:
+    def generate_action_plan(self, text_input: str) -> dict:
         logger.info(f"LLMEngine: Processing prompt: {text_input}")
-        db_state = self.get_db_state(user_id)
+        db_state = self.get_db_state()
         db_state_json = json.dumps(db_state, indent=2)
         response_text = self._cached_generate_action_plan(text_input, db_state_json)
         return json.loads(response_text)
 
 
-    def generate_multimodal_plan(self, text_prompt: str, image_bytes: bytes, mime_type: str, user_id: str) -> dict:
+    def generate_multimodal_plan(self, text_prompt: str, image_bytes: bytes, mime_type: str) -> dict:
         import base64
         logger.info("LLMEngine: Processing multimodal prompt...")
-        db_state = self.get_db_state(user_id)
+        db_state = self.get_db_state()
         base64_image = base64.b64encode(image_bytes).decode("utf-8")
         
         schema_def = {

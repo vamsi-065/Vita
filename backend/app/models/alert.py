@@ -7,7 +7,6 @@ class AlertRule(Base):
     __tablename__ = "alert_rules"
 
     id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(UUID(as_uuid=True), index=True, nullable=False)
     name = Column(String, index=True)
     type = Column(String, index=True) # e.g., 'quantity', 'expiry', 'pending_credit', 'sales_target'
     condition = Column(String) # '<', '>', '==', 'expires_in_days'
@@ -20,7 +19,6 @@ class Alert(Base):
     __tablename__ = "alerts"
 
     id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(UUID(as_uuid=True), index=True, nullable=False)
     rule_id = Column(Integer, index=True)
     message = Column(String)
     is_read = Column(Boolean, default=False)
@@ -30,7 +28,6 @@ class NotificationLog(Base):
     __tablename__ = "notification_logs"
 
     id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(UUID(as_uuid=True), index=True, nullable=False)
     alert_id = Column(Integer, index=True, nullable=True) # Optional, since reports might not map to a single alert
     message = Column(String)
     status = Column(String) # PENDING, SENT, FAILED
