@@ -140,11 +140,13 @@ async def global_exception_handler(request: Request, exc: Exception):
         content={"detail": "Internal Server Error", "error": str(exc), "traceback": trace}
     )
 
-from app.api.v1.endpoints import auth, alerts, chat, tables
+from app.api.v1.endpoints import auth, alerts, chat, tables, profile, telegram
 app.include_router(auth.router, prefix="/api/v1/auth", tags=["auth"])
 app.include_router(alerts.router, prefix="/api/v1/alerts", tags=["alerts"])
 app.include_router(chat.router, prefix="/api/v1/chat", tags=["chat"])
 app.include_router(tables.router, prefix="/api/v1/tables", tags=["tables"])
+app.include_router(profile.router, prefix="/api/v1/profile", tags=["profile"])
+app.include_router(telegram.router, prefix="/webhook", tags=["telegram"])
 
 @app.get("/")
 def root():

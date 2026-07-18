@@ -21,13 +21,28 @@ def send_telegram_notification(db: Session, alert_id: int, message: str, alert_t
     
     formatted_message = f"🚨 Alert\n\nType: {alert_type}\nTime: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\nMessage:\n{message}"
     
-    success, error = telegram_client.send_telegram_alert(formatted_message)
-    
-    if success:
+    from app.models.profile import Profile
+    profiles = db.query(Profile).filter(Profile.telegram_chat_id.isnot(None)).all()
+    if not profiles:
+        logger.warning("No linked Telegram accounts found to send alert.")
+        log.status = "FAILED"
+        log.error_reason = "No linked Telegram accounts found"
+        db.commit()
+        return
+        
+    all_success = True
+    errors = []
+    for p in profiles:
+        success, error = telegram_client.send_telegram_alert(formatted_message, p.telegram_chat_id)
+        if not success:
+            all_success = False
+            errors.append(error)
+            
+    if all_success:
         log.status = "SENT"
     else:
         log.status = "FAILED"
-        log.error_reason = error
+        log.error_reason = ", ".join(errors)
         
     db.commit()
 

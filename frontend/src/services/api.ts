@@ -1,5 +1,6 @@
 import { API_BASE_URL } from '../lib/constants';
 import type { ChatResponse, TableDetail, Alert, AlertRule } from '../types';
+import { supabase } from '../lib/supabase';
 
 export function isAuthenticated(): boolean {
   return true;
@@ -9,8 +10,17 @@ async function request<T>(
   endpoint: string,
   options: RequestInit = {}
 ): Promise<T> {
+  const { data } = await supabase.auth.getSession();
+  const token = data.session?.access_token;
+  
+  const headers = new Headers(options.headers);
+  if (token) {
+    headers.set('Authorization', `Bearer ${token}`);
+  }
+
   const response = await fetch(`${API_BASE_URL}${endpoint}`, {
     ...options,
+    headers,
   });
 
   if (!response.ok) {
@@ -32,7 +42,14 @@ async function request<T>(
 }
 
 export const api = {
-  getMe: () => Promise.resolve({ id: '1', email: 'open@business.os', full_name: 'Open User', business_name: 'Vita' }),
+  getMe: () => request<{id: string, email: string, full_name: string, business_name: string}>('/auth/me'),
+  
+  updateProfile: (phone_number: string) => 
+    request<{id: string, phone_number: string}>('/profile', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ phone_number })
+    }),
 
   sendChat: (message: string) =>
     request<ChatResponse>('/chat/', {

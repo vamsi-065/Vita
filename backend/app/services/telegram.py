@@ -40,14 +40,19 @@ class TelegramClient:
             response.raise_for_status()
             return response.json()
 
-    def send_telegram_alert(self, message: str):
+    def send_telegram_alert(self, message: str, chat_id: str = None):
+        target_chat_id = chat_id or TELEGRAM_CHAT_ID
+        if not target_chat_id:
+            logger.warning("No chat_id provided and TELEGRAM_CHAT_ID is not set.")
+            return False, "No chat_id"
+            
         payload = {
-            "chat_id": TELEGRAM_CHAT_ID,
+            "chat_id": target_chat_id,
             "text": message
         }
         try:
             self._send_request(payload)
-            logger.info(f"Successfully sent Telegram message to chat {TELEGRAM_CHAT_ID}")
+            logger.info(f"Successfully sent Telegram message to chat {target_chat_id}")
             return True, None
         except httpx.HTTPStatusError as e:
             error_msg = f"HTTP error {e.response.status_code}: {e.response.text}"
