@@ -10,6 +10,7 @@ from app.core.database import engine as db_engine
 from dotenv import load_dotenv
 
 load_dotenv()
+from datetime import datetime
 logger = logging.getLogger(__name__)
 
 class RateLimitExceeded(Exception):
@@ -71,6 +72,9 @@ class LLMEngine:
                     rows = []
                     for row in result.mappings():
                         row_dict = dict(row)
+                        for k, v in row_dict.items():
+                            if isinstance(v, datetime):
+                                row_dict[k] = v.isoformat()
                         rows.append(row_dict)
                     state[table_name] = rows
         except Exception as e:

@@ -36,8 +36,12 @@ def get_inventory_data():
             with engine.connect() as conn:
                 result = conn.execute(text("SELECT * FROM inventory ORDER BY id DESC"))
                 rows = []
+                from datetime import datetime
                 for row in result.mappings():
                     d = dict(row)
+                    for k, v in d.items():
+                        if isinstance(v, datetime):
+                            d[k] = v.isoformat()
                     rows.append(d)
                 return rows
     except Exception as e:

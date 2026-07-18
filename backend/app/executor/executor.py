@@ -40,7 +40,15 @@ class Executor:
             elif op_type == "alter_table":
                 results.append(f"Altered table structure for '{target}'.")
             elif op_type == "select":
-                rows = [dict(r) for r in res.mappings().all()] if hasattr(res, "mappings") else []
+                rows = []
+                if hasattr(res, "mappings"):
+                    from datetime import datetime
+                    for r in res.mappings().all():
+                        d = dict(r)
+                        for k, v in d.items():
+                            if isinstance(v, datetime):
+                                d[k] = v.isoformat()
+                        rows.append(d)
                 results.append({"type": "select", "data": rows})
             elif op_type == "set_limit":
                 if row_count == 0:
