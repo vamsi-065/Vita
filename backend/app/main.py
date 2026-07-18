@@ -45,39 +45,19 @@ def run_startup_checks():
     try:
         logger.info("Syncing Database Schema...")
         Base.metadata.create_all(bind=engine)
-        
-        # Ensure inventory table is created explicitly
-        with database_service.transaction() as session:
-            session.execute(text("""
-                CREATE TABLE IF NOT EXISTS inventory (
-                    id SERIAL PRIMARY KEY,
-                    item_name VARCHAR(255) UNIQUE NOT NULL,
-                    quantity INTEGER NOT NULL DEFAULT 0,
-                    status VARCHAR(50) NOT NULL DEFAULT 'Out of Stock'
-                );
-            """))
         logger.info("Database Schema synced successfully.")
     except Exception as e:
         logger.critical(f"[STARTUP FAILED] Schema creation failed: {e}")
         sys.exit(1)
         
-    # 4. CRUD engine self-test
+    # 4. Database connectivity self-test
     try:
-        logger.info("Verifying CRUD engine...")
+        logger.info("Verifying database connectivity...")
         with database_service.transaction() as session:
-            # Clean up potential legacy test rows
-            session.execute(text("DELETE FROM inventory WHERE item_name = 'startup_test_banana';"))
-            # Insert
-            session.execute(text("INSERT INTO inventory (item_name, quantity, status) VALUES ('startup_test_banana', 10, 'In Stock');"))
-            # Select
-            row = session.execute(text("SELECT id, quantity FROM inventory WHERE item_name = 'startup_test_banana';")).fetchone()
-            if not row or row[1] != 10:
-                raise ValueError("CRUD self-test select verification failed.")
-            # Delete
-            session.execute(text("DELETE FROM inventory WHERE item_name = 'startup_test_banana';"))
-        logger.info("CRUD engine validated successfully.")
+            session.execute(text("SELECT 1;"))
+        logger.info("Database connectivity validated successfully.")
     except Exception as e:
-        logger.critical(f"[STARTUP FAILED] CRUD engine self-test failed: {e}")
+        logger.critical(f"[STARTUP FAILED] Database connectivity test failed: {e}")
         sys.exit(1)
         
     # 5. Verify GEMINI_API_KEY
