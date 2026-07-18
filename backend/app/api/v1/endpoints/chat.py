@@ -1,4 +1,4 @@
-from fastapi import APIRouter, UploadFile, File, HTTPException
+from fastapi import APIRouter, UploadFile, File, HTTPException, Depends
 from pydantic import BaseModel, Field
 import json
 import re
@@ -13,11 +13,12 @@ from app.intent_normalizer import IntentNormalizer
 from app.validator import validator
 from app.executor import executor
 from app.services.sql_generator import SQLGenerator
+from app.api.v1.endpoints.auth import get_current_user
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
-_pending_action = None
+_pending_action = {}
 
 class ChatRequest(BaseModel):
     message: str = Field(..., min_length=1, max_length=4000)
@@ -28,13 +29,18 @@ class ChatResponse(BaseModel):
     data_payload: dict = None
     confirmation_required: bool = False
 
-def get_inventory_data():
+def get_inventory_data(user_id: str):
     try:
         inspector = inspect(engine)
         if "inventory" in inspector.get_table_names():
             with engine.connect() as conn:
-                result = conn.execute(text("SELECT * FROM inventory ORDER BY id DESC"))
-                return [dict(row) for row in result.mappings()]
+                result = conn.execute(text("SELECT * FROM inventory WHERE user_id = :uid ORDER BY id DESC"), {"uid": user_id})
+                rows = []
+                for row in result.mappings():
+                    d = dict(row)
+                    d.pop("user_id", None)
+                    rows.append(d)
+                return rows
     except Exception as e:
         logger.error(f"Error fetching inventory: {e}")
     return []
@@ -135,7 +141,7 @@ def check_and_evolve_schema(operations: list):
         except Exception as e:
             logger.error(f"Error resetting SQLAlchemy metadata after schema change: {e}")
 
-def run_pipeline(request_message: str, action_plan: dict):
+def run_pipeline(request_message: str, action_plan: dict, user_id: str):
     start_time = time()
     logger.info("=================== PIPELINE START ===================")
     logger.info(f"Stage 1: User Prompt: {request_message}")
@@ -145,7 +151,7 @@ def run_pipeline(request_message: str, action_plan: dict):
         logger.info("Stage 3: Confirmation Required - skipping execution.")
         
         global _pending_action
-        _pending_action = {"type": "DELETE_ALL_INVENTORY"}
+        _pending_action[user_id] = {"type": "DELETE_ALL_INVENTORY"}
         
         draft_response = action_plan.get("response") or action_plan.get("message") or "Are you sure you want to clear all items? Please confirm."
         return {
@@ -153,7 +159,7 @@ def run_pipeline(request_message: str, action_plan: dict):
             "operations_executed": [],
             "data_payload": {
                 "added_items": [],
-                "total_inventory": get_inventory_data()
+                "total_inventory": get_inventory_data(user_id)
             },
             "confirmation_required": True
         }
@@ -197,7 +203,7 @@ def run_pipeline(request_message: str, action_plan: dict):
             raise HTTPException(status_code=400, detail="Failed to parse user intent into database operations.")
 
     # 3.5 Strict Stock Validation
-    inventory_data = get_inventory_data()
+    inventory_data = get_inventory_data(user_id)
     for op in valid_ops:
         if op.get("type") == "update" and op.get("target") == "inventory":
             item_name = op.get("conditions", {}).get("item_name")
@@ -236,7 +242,7 @@ def run_pipeline(request_message: str, action_plan: dict):
                 logger.info(f"Stage 5: Generated SQL: {sql} | Parameters: {params}")
                 
                 # Execution
-                res = executor.execute_ops(session, [op])
+                res = executor.execute_ops(session, [op], user_id=user_id)
                 execution_results.extend(res)
                 logger.info(f"Stage 6: SQL Execution Success: {res}")
     except Exception as e:
@@ -292,30 +298,32 @@ def run_pipeline(request_message: str, action_plan: dict):
         "operations_executed": valid_ops,
         "data_payload": {
             "added_items": added_items,
-            "total_inventory": get_inventory_data(),
+            "total_inventory": get_inventory_data(user_id),
             "queried_data": queried_data
         }
     }
 
 @router.post("/", response_model=ChatResponse)
-def chat(request: ChatRequest):
+def chat(request: ChatRequest, current_user = Depends(get_current_user)):
+    user_id = str(current_user.id)
     global _pending_action
     logger.info(f"Initiated chat request: {request.message}")
     
     msg_lower = request.message.strip().lower()
-    if _pending_action and _pending_action.get("type") == "DELETE_ALL_INVENTORY":
+    pending = _pending_action.get(user_id)
+    if pending and pending.get("type") == "DELETE_ALL_INVENTORY":
         if msg_lower in ["yes", "y", "confirm", "proceed", "continue"]:
             logger.info("User confirmed pending DELETE_ALL_INVENTORY action.")
             try:
                 with database_service.transaction() as session:
-                    session.execute(text("DELETE FROM inventory;"))
-                _pending_action = None
+                    session.execute(text("DELETE FROM inventory WHERE user_id = :uid;"), {"uid": user_id})
+                _pending_action.pop(user_id, None)
                 return {
                     "message": "Inventory cleared successfully.",
                     "operations_executed": [{"type": "delete_all", "target": "inventory"}],
                     "data_payload": {
                         "added_items": [],
-                        "total_inventory": get_inventory_data()
+                        "total_inventory": get_inventory_data(user_id)
                     },
                     "confirmation_required": False
                 }
@@ -325,23 +333,23 @@ def chat(request: ChatRequest):
                 raise HTTPException(status_code=500, detail="Failed to clear inventory. Check server logs.")
         elif msg_lower in ["no", "cancel", "n"]:
             logger.info("User cancelled pending DELETE_ALL_INVENTORY action.")
-            _pending_action = None
+            _pending_action.pop(user_id, None)
             return {
                 "message": "Operation cancelled.",
                 "operations_executed": [],
                 "data_payload": {
                     "added_items": [],
-                    "total_inventory": get_inventory_data()
+                    "total_inventory": get_inventory_data(user_id)
                 },
                 "confirmation_required": False
             }
         else:
             # If they reply with something else entirely, clear pending state and process normally.
-            _pending_action = None
+            _pending_action.pop(user_id, None)
 
     # 1. Call Gemini to parse intent
     try:
-        action_plan = llm_engine.generate_action_plan(request.message)
+        action_plan = llm_engine.generate_action_plan(request.message, user_id)
     except RateLimitExceeded as e:
         logger.error(f"Gemini API Rate Limit Exceeded: {e}")
         raise HTTPException(status_code=429, detail=str(e))
@@ -351,10 +359,11 @@ def chat(request: ChatRequest):
         raise HTTPException(status_code=400, detail="AI engine communication failure. Check server logs.")
         
     # 2. Run the intent resolution and database pipeline
-    return run_pipeline(request.message, action_plan)
+    return run_pipeline(request.message, action_plan, user_id)
 
 @router.post("/upload", response_model=ChatResponse)
-async def upload(file: UploadFile = File(...)):
+async def upload(file: UploadFile = File(...), current_user = Depends(get_current_user)):
+    user_id = str(current_user.id)
     logger.info(f"Uploaded file: {file.filename}")
     
     image_bytes = await file.read()
@@ -365,7 +374,8 @@ async def upload(file: UploadFile = File(...)):
         action_plan = llm_engine.generate_multimodal_plan(
             text_prompt="Please analyze this document/photo and update the inventory.",
             image_bytes=image_bytes,
-            mime_type=mime_type
+            mime_type=mime_type,
+            user_id=user_id
         )
     except RateLimitExceeded as e:
         logger.error(f"Gemini API Rate Limit Exceeded: {e}")
@@ -376,4 +386,4 @@ async def upload(file: UploadFile = File(...)):
         raise HTTPException(status_code=400, detail="AI engine communication failure. Check server logs.")
         
     # 2. Run the intent resolution and database pipeline
-    return run_pipeline(f"Upload: {file.filename}", action_plan)
+    return run_pipeline(f"Upload: {file.filename}", action_plan, user_id)

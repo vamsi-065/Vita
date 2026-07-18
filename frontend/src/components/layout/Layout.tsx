@@ -1,10 +1,11 @@
 import { useState, useEffect, useRef } from 'react';
-import { Menu, Send, Sun, Moon, Mic, Plus, MessageSquare, Package, Paperclip, Trash2 } from 'lucide-react';
+import { Menu, Send, Sun, Moon, Mic, Plus, MessageSquare, Package, Paperclip, Trash2, LogOut } from 'lucide-react';
 import { EmptyState } from './EmptyState';
 import { useStore } from '../../store/useStore';
 import { MessageBubble, TypingIndicator } from '../chat/MessageBubble';
 import { api } from '../../services/api';
 import { useToast } from '../../context/ToastContext';
+import { supabase } from '../../lib/supabase';
 
 export function Layout() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -355,16 +356,28 @@ export function Layout() {
           </div>
         )}
 
-        <div className="p-4 border-t border-[var(--color-border-main)] flex items-center justify-between">
-          <span className="text-sm font-medium text-[var(--color-text-meta)]">
-            {isDark ? 'Dark Mode' : 'Light Mode'}
-          </span>
+        <div className="p-4 border-t border-[var(--color-border-main)] flex flex-col gap-3">
+          <div className="flex items-center justify-between">
+            <span className="text-sm font-medium text-[var(--color-text-meta)]">
+              {isDark ? 'Dark Mode' : 'Light Mode'}
+            </span>
+            <button 
+              onClick={toggleTheme}
+              className="p-2 rounded-lg bg-[var(--color-surface-chat)] border border-[var(--color-border-main)] text-[var(--color-text-meta)] hover:text-[var(--color-text-main)] hover:bg-gray-100 dark:hover:bg-zinc-800 transition-all cursor-pointer"
+              aria-label="Toggle Theme"
+            >
+              {isDark ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}
+            </button>
+          </div>
           <button 
-            onClick={toggleTheme}
-            className="p-2 rounded-lg bg-[var(--color-surface-chat)] border border-[var(--color-border-main)] text-[var(--color-text-meta)] hover:text-[var(--color-text-main)] hover:bg-gray-100 dark:hover:bg-zinc-800 transition-all cursor-pointer"
-            aria-label="Toggle Theme"
+            onClick={async () => {
+              await supabase.auth.signOut();
+              useStore.getState().logout();
+            }}
+            className="flex items-center justify-center gap-2 w-full py-2 rounded-lg border border-[var(--color-border-main)] text-[var(--color-text-meta)] hover:text-red-500 hover:border-red-500 hover:bg-red-50 dark:hover:bg-red-950/30 transition-colors cursor-pointer"
           >
-            {isDark ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}
+            <LogOut size={16} />
+            <span className="text-sm font-medium">Log Out</span>
           </button>
         </div>
       </aside>

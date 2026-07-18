@@ -17,7 +17,7 @@ class SQLGenerator:
         return "VARCHAR(255)"
 
     @staticmethod
-    def generate(op: dict) -> tuple[str, dict]:
+    def generate(op: dict, user_id: str = None) -> tuple[str, dict]:
         op_type = op.get("type", "")
         target = op.get("target", "").lower().strip()
         
@@ -36,10 +36,19 @@ class SQLGenerator:
                 else:
                     col_defs.append(f"{col_name} {col_type}")
             
+            # Enforce multi-tenancy columns
+            if not any(c.startswith("user_id ") for c in col_defs):
+                col_defs.append("user_id UUID REFERENCES auth.users(id) NOT NULL")
+            if not any(c.startswith("created_at ") for c in col_defs):
+                col_defs.append("created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now())")
+                
             sql = f"CREATE TABLE IF NOT EXISTS {target} ({', '.join(col_defs)});"
             
         elif op_type == "insert":
             data = op.get("data", {})
+            if user_id:
+                data["user_id"] = user_id
+                
             columns = []
             placeholders = []
             for col, val in data.items():
@@ -53,6 +62,8 @@ class SQLGenerator:
         elif op_type == "update" or op_type == "set_limit":
             data = op.get("data", {})
             conditions = op.get("conditions", {})
+            if user_id:
+                conditions["user_id"] = user_id
             
             set_clauses = []
             for col, val in data.items():
@@ -78,11 +89,14 @@ class SQLGenerator:
             
         elif op_type == "delete":
             conditions = op.get("conditions", {})
+            if user_id:
+                conditions["user_id"] = user_id
+                
             where_clauses = []
             for col, val in conditions.items():
                 col_clean = col.lower().strip()
                 param_name = f"cond_{col_clean}"
-                if isinstance(val, str):
+                if isinstance(val, str) and col_clean != "user_id":
                     where_clauses.append(f"LOWER({col_clean}) = LOWER(:{param_name})")
                 else:
                     where_clauses.append(f"{col_clean} = :{param_name}")
@@ -95,15 +109,22 @@ class SQLGenerator:
             sql = f"DELETE FROM {target}{where_str};"
             
         elif op_type == "delete_all":
-            sql = f"DELETE FROM {target};"
+            if user_id:
+                sql = f"DELETE FROM {target} WHERE user_id = :cond_user_id;"
+                params["cond_user_id"] = user_id
+            else:
+                sql = f"DELETE FROM {target};"
             
         elif op_type == "select":
             conditions = op.get("conditions", {})
+            if user_id:
+                conditions["user_id"] = user_id
+                
             where_clauses = []
             for col, val in conditions.items():
                 col_clean = col.lower().strip()
                 param_name = f"cond_{col_clean}"
-                if isinstance(val, str):
+                if isinstance(val, str) and col_clean != "user_id":
                     where_clauses.append(f"{col_clean} ILIKE :{param_name}")
                     params[param_name] = f"%{val}%"
                 else:
