@@ -356,7 +356,7 @@ def chat(request: ChatRequest, current_user = Depends(get_current_user)):
     except Exception as e:
         error_details = traceback.format_exc()
         logger.error(f"Gemini API failure during action plan generation:\n{error_details}")
-        raise HTTPException(status_code=400, detail="AI engine communication failure. Check server logs.")
+        raise HTTPException(status_code=500, detail=f"AI engine communication failure: {str(e)}")
         
     # 2. Run the intent resolution and database pipeline
     return run_pipeline(request.message, action_plan, user_id)
@@ -383,7 +383,7 @@ async def upload(file: UploadFile = File(...), current_user = Depends(get_curren
     except Exception as e:
         error_details = traceback.format_exc()
         logger.error(f"Gemini Multimodal API failure:\n{error_details}")
-        raise HTTPException(status_code=400, detail="AI engine communication failure. Check server logs.")
+        raise HTTPException(status_code=500, detail=f"AI engine communication failure: {str(e)}")
         
     # 2. Run the intent resolution and database pipeline
     return run_pipeline(f"Upload: {file.filename}", action_plan, user_id)

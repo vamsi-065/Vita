@@ -135,7 +135,7 @@ If recording sales or removing items:
 - If the item does not exist, explain in response that item was not found.
 If the user asks to set, update, or remove an alert limit / threshold for a product (e.g. "set limit 5 for eggs", "alert me when rice is below 10"):
 - Output a "set_limit" operation for "inventory".
-- Set "conditions" to match the item name (e.g. {"item_name": "Eggs"}).
+- Set "conditions" to match the item name (e.g. {{"item_name": "Eggs"}}).
 - Set "alert_limit" in "data" to the requested number. To remove a limit, set it to null.
 - Draft response: "Alert limit for <Item Name> has been set to <Limit>." (e.g., "Alert limit for Eggs has been set to 5.")
 If deleting/removing specific items (e.g. "remove eggs"):
@@ -147,7 +147,7 @@ If the user explicitly confirms clearing the entire inventory (e.g. "confirm del
 - Output a "delete_all" operation with target "inventory" and set "confirmation_required": false.
 If the user asks to see, show, list, or display inventory, or searches for a product by name (e.g., "show inventory", "search for milk", "do I have eggs", "show out-of-stock items", "find rice"):
 - Output a "select" operation for "inventory".
-- If searching by name, add "item_name" to "conditions" (e.g. {"item_name": "Milk"}). The backend will handle partial matching.
+- If searching by name, add "item_name" to "conditions" (e.g. {{"item_name": "Milk"}}). The backend will handle partial matching.
 - Do not output "select" for normal conversational responses unless they explicitly ask to see inventory/products.
 
 Multilingual Rules:
@@ -251,7 +251,7 @@ If the user explicitly confirms clearing the entire inventory (e.g. "confirm del
 - Output a "delete_all" operation with target "inventory" and set "confirmation_required": false.
 If the user asks to see, show, list, or display inventory, or searches for a product by name (e.g., "show inventory", "search for milk", "do I have eggs", "show out-of-stock items", "find rice"):
 - Output a "select" operation for "inventory".
-- If searching by name, add "item_name" to "conditions" (e.g. {"item_name": "Milk"}). The backend will handle partial matching.
+- If searching by name, add "item_name" to "conditions" (e.g. {{"item_name": "Milk"}}). The backend will handle partial matching.
 - Do not output "select" for normal conversational responses unless they explicitly ask to see inventory/products.
 
 Multilingual Rules:
