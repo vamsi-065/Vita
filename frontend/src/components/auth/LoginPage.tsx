@@ -5,7 +5,6 @@ import { supabase } from '../../lib/supabase';
 
 export function LoginPage() {
   const [step, setStep] = useState<1 | 2>(1);
-  const [countryCode, setCountryCode] = useState('+1');
   const [phone, setPhone] = useState('');
   const [otp, setOtp] = useState(['', '', '', '', '', '']);
   const [isLoading, setIsLoading] = useState(false);
@@ -18,7 +17,15 @@ export function LoginPage() {
     if (!phone) return;
     setIsLoading(true);
     setError('');
-    const fullPhone = `${countryCode}${phone.replace(/\D/g, '')}`;
+
+    const cleanPhone = phone.replace(/\D/g, '');
+    if (!/^[6-9]\d{9}$/.test(cleanPhone)) {
+      setError('Please enter a valid 10-digit Indian mobile number.');
+      setIsLoading(false);
+      return;
+    }
+
+    const fullPhone = `+91${cleanPhone}`;
     
     const { error: signInError } = await supabase.auth.signInWithOtp({
       phone: fullPhone,
@@ -39,7 +46,9 @@ export function LoginPage() {
     if (code.length < 6) return;
     setIsLoading(true);
     setError('');
-    const fullPhone = `${countryCode}${phone.replace(/\D/g, '')}`;
+    
+    const cleanPhone = phone.replace(/\D/g, '');
+    const fullPhone = `+91${cleanPhone}`;
 
     const { data, error: verifyError } = await supabase.auth.verifyOtp({
       phone: fullPhone,
@@ -97,7 +106,7 @@ export function LoginPage() {
           <p className="text-[#8E8E93] mb-6">
             {step === 1 
               ? 'Sign in to continue to your workspace.' 
-              : `We sent a code to ${countryCode} ${phone}`}
+              : `We sent a code to +91 ${phone}`}
           </p>
 
           {error && (
@@ -111,18 +120,12 @@ export function LoginPage() {
               <div className="space-y-2">
                 <label className="text-sm font-medium text-[#8E8E93]">Phone Number</label>
                 <div className="flex bg-[#0B0B0C] rounded-xl border border-[#444746] focus-within:border-[#818CF8] focus-within:ring-1 focus-within:ring-[#818CF8] transition-all overflow-hidden">
-                  <select 
-                    className="bg-transparent text-white px-3 py-3 outline-none border-r border-[#444746] text-sm appearance-none cursor-pointer hover:bg-white/5 transition-colors"
-                    value={countryCode}
-                    onChange={(e) => setCountryCode(e.target.value)}
-                  >
-                    <option value="+1">🇺🇸 +1</option>
-                    <option value="+44">🇬🇧 +44</option>
-                    <option value="+91">🇮🇳 +91</option>
-                  </select>
+                  <div className="bg-transparent text-[#8E8E93] px-3 py-3 border-r border-[#444746] text-sm flex items-center select-none">
+                    +91
+                  </div>
                   <input
                     type="tel"
-                    placeholder="Enter your phone number"
+                    placeholder="Enter 10-digit mobile number"
                     className="w-full bg-transparent text-white px-4 py-3 outline-none placeholder-[#8E8E93]"
                     value={phone}
                     onChange={(e) => setPhone(e.target.value)}
