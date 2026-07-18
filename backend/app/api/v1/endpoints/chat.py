@@ -150,7 +150,7 @@ def run_pipeline(request_message: str, action_plan: dict):
         logger.info("Stage 3: Confirmation Required - skipping execution.")
         
         global _pending_action
-        _pending_action[user_id] = {"type": "DELETE_ALL_INVENTORY"}
+        _pending_action = {"type": "DELETE_ALL_INVENTORY"}
         
         draft_response = action_plan.get("response") or action_plan.get("message") or "Are you sure you want to clear all items? Please confirm."
         return {
@@ -158,7 +158,7 @@ def run_pipeline(request_message: str, action_plan: dict):
             "operations_executed": [],
             "data_payload": {
                 "added_items": [],
-                "total_inventory": get_inventory_data(user_id)
+                "total_inventory": get_inventory_data()
             },
             "confirmation_required": True
         }
@@ -202,7 +202,7 @@ def run_pipeline(request_message: str, action_plan: dict):
             raise HTTPException(status_code=400, detail="Failed to parse user intent into database operations.")
 
     # 3.5 Strict Stock Validation
-    inventory_data = get_inventory_data(user_id)
+    inventory_data = get_inventory_data()
     for op in valid_ops:
         if op.get("type") == "update" and op.get("target") == "inventory":
             item_name = op.get("conditions", {}).get("item_name")
@@ -304,7 +304,6 @@ def run_pipeline(request_message: str, action_plan: dict):
 
 @router.post("/", response_model=ChatResponse)
 def chat(request: ChatRequest, current_user = Depends(get_current_user)):
-    user_id = str(current_user.id)
     global _pending_action
     logger.info(f"Initiated chat request: {request.message}")
     
@@ -338,7 +337,7 @@ def chat(request: ChatRequest, current_user = Depends(get_current_user)):
                 "operations_executed": [],
                 "data_payload": {
                     "added_items": [],
-                    "total_inventory": get_inventory_data(user_id)
+                    "total_inventory": get_inventory_data()
                 },
                 "confirmation_required": False
             }

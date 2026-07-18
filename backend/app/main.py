@@ -118,12 +118,26 @@ app.add_middleware(
 # Global exception logger
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
-    logger.error(f"Unhandled exception on request {request.method} {request.url.path}:")
-    trace = "".join(traceback.format_exception(type(exc), exc, exc.__traceback__))
-    logger.error(trace)
+    from fastapi import HTTPException
+    if isinstance(exc, HTTPException):
+        status_code = exc.status_code
+        content = {"detail": exc.detail}
+    else:
+        logger.error(f"Unhandled exception on request {request.method} {request.url.path}:")
+        trace = "".join(traceback.format_exception(type(exc), exc, exc.__traceback__))
+        logger.error(trace)
+        status_code = 500
+        content = {"detail": "Internal Server Error", "error": str(exc), "traceback": trace}
+
     return JSONResponse(
-        status_code=500,
-        content={"detail": "Internal Server Error", "error": str(exc), "traceback": trace}
+        status_code=status_code,
+        content=content,
+        headers={
+            "Access-Control-Allow-Origin": "https://vita-opal.vercel.app",
+            "Access-Control-Allow-Credentials": "true",
+            "Access-Control-Allow-Methods": "*",
+            "Access-Control-Allow-Headers": "*",
+        }
     )
 
 from app.api.v1.endpoints import auth, alerts, chat, tables, profile, telegram
